@@ -8,4 +8,8 @@ setup (name = 'mattspy',
        author_email = 'becker.mr@gmail.com',
        license = "GPL",
        url = 'https://github.com/beckermr/mattspy',
-       packages = ['mattspy','mattspy.plotting','mattspy.stats'])
+       packages = ['mattspy',
+                   'mattspy.plotting',
+                   'mattspy.stats',
+                   'mattspy.des',
+                   'mattspy.utils'])
