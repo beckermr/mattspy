@@ -10,11 +10,13 @@ class PBar(object):
     Prints a progressbar to the screen.
     
     Use like this
-    pgr = PBar(N,"doing work")
-    pgr.start()
-    for i in xrange(N):
-        pgr.update(i+1)
-    pgr.finish()    
+
+        pgr = PBar(N,"doing work")
+        pgr.start()
+        for i in xrange(N):
+            pgr.update(i+1)
+        pgr.finish()    
+
     """
     def __init__(self,Nmax,name=""):
         self.name = name

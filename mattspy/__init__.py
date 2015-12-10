@@ -1,4 +1,4 @@
-""""
+"""
 Matt's collection of python utilities.
 
 Starter Code
@@ -10,26 +10,22 @@ import sys
 import numpy as np
 import matplotlib.pyplot as plt
 
-import progressbar
-bar = progressbar.ProgressBar(maxval=len(dat),widgets=[progressbar.Bar(marker='|',left='doing work: |',right=''),' ',progressbar.Percentage(),' ',progressbar.AdaptiveETA()])
-bar.start()
-bar.update(i+1)
-bar.finish()
+pgr = PBar(N,"doing work")
+pgr.start()
+for i in xrange(N):
+    pgr.update(i+1)
+pgr.finish()    
 
 from mpi4py import MPI
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 size = comm.Get_size()
 
-Modules/Functions
------------------
-
-rcols(N,colorscale="rainbow") : produce N colors on a color scale
-
 """
 
-
-from rcols import *
-from pbar import *
+from pbar import PBar
+del pbar
 from url_walk import url_walk
-from stats import *
+import stats
+import plotting
+
