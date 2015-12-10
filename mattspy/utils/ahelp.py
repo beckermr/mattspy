@@ -31,7 +31,7 @@ from sys import stdout, stderr
 import pydoc
 import numpy
 
-def ahelp(array_in, recurse=False, pretty=True, index=0, page=False):
+def ahelp(array_in, recurse=False, pretty=True, index=0, page=False, max_vec_print=10):
     """
     Name:
       ahelp()
@@ -55,6 +55,8 @@ def ahelp(array_in, recurse=False, pretty=True, index=0, page=False):
             harder for a machine to parse.  Also, strings are surrounded
             by quotes 'string'.  Default is True.
         page: If True, run the output through a pager.
+        max_vec_print: maximum number of elements to print for vector fields
+            default is 10
 
     Example:
         ahelp(a)
@@ -104,7 +106,8 @@ def ahelp(array_in, recurse=False, pretty=True, index=0, page=False):
         flines=_get_field_info(array,
                                recurse=recurse,
                                pretty=pretty,
-                               index=index)
+                               index=index,
+                               max_array_printlen=max_vec_print)
         lines += flines
 
     lines='\n'.join(lines)
@@ -116,7 +119,7 @@ def ahelp(array_in, recurse=False, pretty=True, index=0, page=False):
         import pydoc
         pydoc.pager(lines)
 
-def _get_field_info(array, nspace=2, recurse=False, pretty=True, index=0):
+def _get_field_info(array, nspace=2, recurse=False, pretty=True, index=0, max_array_printlen=10):
     names = array.dtype.names
     if names is None:
         raise ValueError("array has no fields")
@@ -182,7 +185,7 @@ def _get_field_info(array, nspace=2, recurse=False, pretty=True, index=0):
                 d=''
                 hasfields=True
             else:
-                if len(fdata.shape) < 2 and fdata.size < 10:
+                if len(fdata.shape) < 2 and fdata.size <= max_array_printlen:
                     d = "["
                     for v in fdata.ravel():
                         d += str(v)
