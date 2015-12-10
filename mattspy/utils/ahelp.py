@@ -26,24 +26,10 @@ license="""
 
 """
 
-import os
 import sys
 from sys import stdout, stderr
-import copy
 import pydoc
-import stat
-
-try:
-    import numpy
-    have_numpy=True
-except:
-    have_numpy=False
-
-from . import misc as eu_misc
-
-# for backwards compatibility
-from .random import random_indices as random_subset
-from .random import randind
+import numpy
 
 def ahelp(array_in, recurse=False, pretty=True, index=0, page=False):
     """
