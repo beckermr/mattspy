@@ -6,6 +6,6 @@ setup (name = 'mattspy',
        description = "Matt's python utils",
        author = 'Matthew R. Becker',
        author_email = 'becker.mr@gmail.com',
-       license = "BSD 3-clause",
+       license = "GPL",
        url = 'https://github.com/beckermr/mattspy',
        packages = ['mattspy','mattspy.plotting','mattspy.stats'])
