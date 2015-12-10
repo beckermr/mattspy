@@ -6,5 +6,5 @@ setup (name = 'mattspy',
        description = "Matt's python utils.",
        author = 'Matthew R. Becker',
        author_email = 'becker.mr@gmail.com',
-       url = 'https://bitbucket.org/beckermr/mattspy',
+       url = 'https://github.com/beckermr/mattspy',
        packages = find_packages())
