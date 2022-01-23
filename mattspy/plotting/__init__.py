@@ -1,3 +1,2 @@
-from rcols import rcols
-from imagescale import segbit_scale,asinh_scale
-del imagescale
+# flake8: noqa
+from .imagescale import segbit_scale, asinh_scale
