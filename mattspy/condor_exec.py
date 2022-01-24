@@ -107,7 +107,7 @@ def _get_all_job_statuses(cjobs):
     return status
 
 
-def _submit_condor_job(exec, subid, nanny_id, fut, job_data):
+def _submit_condor_job(exec, subid, nanny_id, fut, job_data, mem_req):
     cjob = None
 
     if not fut.cancelled():
@@ -132,7 +132,7 @@ Universe       = vanilla
 Notification   = Never
 # this executable must have u+x bits
 Executable     = %s
-request_memory = 2G
+request_memory = %dG
 kill_sig       = SIGINT
 leave_in_queue = TRUE
 +Experiment    = "astro"
@@ -147,6 +147,7 @@ Arguments = %s %s %s
 Queue
 """ % (
                     os.path.join(exec.execdir, "run.sh"),
+                    mem_req,
                     infile,
                     "job-%s-%s" % (exec.execid, subid),
                     outfile,
@@ -178,7 +179,7 @@ Queue
     return cjob
 
 
-def _attempt_submit(exec, nanny_id, subid):
+def _attempt_submit(exec, nanny_id, subid, mem_req):
     submitted = False
     cjob = exec._nanny_subids[nanny_id][subid][0]
     fut = exec._nanny_subids[nanny_id][subid][1]
@@ -195,7 +196,7 @@ def _attempt_submit(exec, nanny_id, subid):
 
         if submit_job:
             cjob = _submit_condor_job(
-                exec, subid, nanny_id, fut, job_data
+                exec, subid, nanny_id, fut, job_data, mem_req
             )
 
             if cjob is None:
@@ -273,7 +274,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
 
 
 def _nanny_function(
-    exec, nanny_id, poll_delay, debug,
+    exec, nanny_id, poll_delay, debug, mem,
 ):
     LOGGER.info("nanny %d started for exec %s", nanny_id, exec.execid)
 
@@ -300,7 +301,7 @@ def _nanny_function(
                 if n_to_submit > 0:
                     n_submitted = 0
                     for subid in subids:
-                        if _attempt_submit(exec, nanny_id, subid):
+                        if _attempt_submit(exec, nanny_id, subid, mem):
                             n_submitted += 1
                         if n_submitted >= 100:
                             break
@@ -354,10 +355,12 @@ class BNLCondorExecutor():
     debug : bool, optional
         If True, the completed condor jobs are left in the queue. This can be
         useful to diagnose failures for jobs in the "held" state.
+    mem : int, optional
+        Requested memory in GB. Default is 2.
     """
     def __init__(
         self, conda_env, max_workers=10000,
-        verbose=0, debug=False,
+        verbose=0, debug=False, mem=2,
     ):
         self.max_workers = max_workers
         self.execid = uuid.uuid4().hex
@@ -367,6 +370,7 @@ class BNLCondorExecutor():
         self._num_nannies = 10
         self.verbose = verbose
         self.debug = debug
+        self.mem = mem
 
         if not self.debug:
             atexit.register(_kill_condor_jobs)
@@ -404,6 +408,7 @@ class BNLCondorExecutor():
                 i,
                 max(1, self._num_nannies/10),
                 self.debug,
+                self.mem,
             )
             for i in range(self._num_nannies)
         ]
