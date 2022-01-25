@@ -25,6 +25,7 @@ STATUS_DICT = {
     "5": "Held",
     "6": "Transferring Output",
     "7": "Suspended",
+    "9": "Killed",
 }
 
 WORKER_INIT = """\
@@ -50,7 +51,7 @@ mkdir -p $(dirname $2)
 mkdir -p $(dirname $3)
 touch $3
 
-run-pickled-task $1 $2 $3 &> $3
+condor-exec-run-pickled-task $1 $2 $3 &> $3
 """
 
 
@@ -85,7 +86,7 @@ def _get_all_job_statuses_call(cjobs):
             line = line.strip().split(" ")
             if line[0] in cjobs:
                 if line[2].strip() == "true":
-                    status[line[0]] = "4"
+                    status[line[0]] = "9"
                 else:
                     status[line[0]] = line[1]
     return status
@@ -221,7 +222,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
         if exec._nanny_subids[nanny_id][_subid][0] == cjob:
             subid = _subid
             break
-    if subid is not None and status_code in ["4", "3", "5", "7"]:
+    if subid is not None and status_code in ["4", "3", "5", "7", "9"]:
         outfile = os.path.join(exec.execdir, subid, "output.pkl")
         infile = os.path.join(exec.execdir, subid, "input.pkl")
 
@@ -246,7 +247,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
                 res = joblib.load(outfile)
             except Exception as e:
                 res = e
-        elif status_code in ["3", "5", "7"]:
+        elif status_code in ["3", "5", "7", "9"]:
             res = RuntimeError(
                 "Condor job %s: status %s" % (
                     subid, STATUS_DICT[status_code]
