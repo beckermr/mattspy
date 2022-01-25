@@ -139,6 +139,7 @@ Executable     = %s
 request_memory = %dG
 kill_sig       = SIGINT
 leave_in_queue = TRUE
+max_retries    = 0
 +Experiment    = "astro"
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
