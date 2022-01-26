@@ -1,3 +1,4 @@
+import sys
 import time
 
 from concurrent.futures import as_completed
@@ -10,7 +11,7 @@ def fun():
 
 
 def main():
-    n_jobs = 2000
+    n_jobs = int(sys.argv[1])
 
     with BNLCondorExecutor("bnl", debug=True) as exec:
         futs = [
