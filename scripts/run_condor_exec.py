@@ -20,14 +20,14 @@ def main():
             for i in range(n_jobs)
         ]
 
-        sum = 0
+        tot = 0
         for fut in PBar(as_completed(futs), total=len(futs), desc="running jobs"):
             try:
-                sum += fut.result()
+                tot += fut.result()
             except Exception as e:
                 print(f"failure: {repr(e)}", flush=True)
 
-    assert sum == sum(range(n_jobs))
+    assert tot == sum(range(n_jobs))
 
 
 if __name__ == "__main__":
