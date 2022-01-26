@@ -6,8 +6,9 @@ from esutil.pbar import PBar
 from mattspy import BNLCondorExecutor
 
 
-def fun():
+def fun(n):
     time.sleep(120)
+    return n
 
 
 def main():
@@ -15,15 +16,18 @@ def main():
 
     with BNLCondorExecutor("bnl", debug=True) as exec:
         futs = [
-            exec.submit(fun)
-            for _ in range(n_jobs)
+            exec.submit(fun, i)
+            for i in range(n_jobs)
         ]
 
+        sum = 0
         for fut in PBar(as_completed(futs), total=len(futs), desc="running jobs"):
             try:
-                fut.result()
+                sum += fut.result()
             except Exception as e:
                 print(f"failure: {repr(e)}", flush=True)
+
+    assert sum == sum(range(n_jobs))
 
 
 if __name__ == "__main__":
