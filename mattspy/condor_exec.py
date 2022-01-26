@@ -226,6 +226,8 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
     if subid is not None and status_code in ["4", "3", "5", "7", "9"]:
         outfile = os.path.join(exec.execdir, subid, "output.pkl")
         infile = os.path.join(exec.execdir, subid, "input.pkl")
+        condorfile = os.path.join(exec.execdir, subid, "condor.sub")
+        logfile = os.path.join(exec.execdir, subid, "log.oe")
 
         del ALL_CONDOR_JOBS[cjob]
         if not debug:
@@ -258,10 +260,11 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
             res = RuntimeError(
                 "Condor job %s: no status or job output found!" % subid)
 
-        subprocess.run(
-            "rm -f %s %s" % (infile, outfile),
-            shell=True,
-        )
+        if not debug:
+            subprocess.run(
+                "rm -f %s %s %s %s" % (infile, outfile, condorfile, logfile),
+                shell=True,
+            )
 
         fut = exec._nanny_subids[nanny_id][subid][1]
         if isinstance(res, Exception):
@@ -354,14 +357,13 @@ class BNLCondorExecutor():
         The conda environment to activate before running code.
     max_workers : int, optional
         The maximum number of condor jobs. Default is 10000.
-    verbose : int, optional
-        The maximum verbosity. If greater than zero, information can be printed.
-        Default is 0.
     debug : bool, optional
         If True, the completed condor jobs are left in the queue. This can be
         useful to diagnose failures for jobs in the "held" state.
     mem : int, optional
         Requested memory in GB. Default is 2.
+    verbose : int, optional
+        This is ignored but is here for compatability. Use `debug=True`.
     """
     def __init__(
         self, conda_env, max_workers=10000,
@@ -384,7 +386,7 @@ class BNLCondorExecutor():
 
     def __enter__(self):
         os.makedirs(self.execdir, exist_ok=True)
-        if self.verbose > 0:
+        if self.debug:
             print(
                 "starting condor executor: "
                 "exec dir %s - max workers %s" % (
@@ -423,6 +425,11 @@ class BNLCondorExecutor():
         self._done = True
         self._exec.shutdown()
         self._exec = None
+        if not self.debug:
+            subprocess.run(
+                f"rm -rf {self.execdir}",
+                shell=True,
+            )
 
     def submit(self, func, *args, **kwargs):
         subid = uuid.uuid4().hex
