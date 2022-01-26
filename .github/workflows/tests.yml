@@ -39,7 +39,6 @@ jobs:
         shell: bash -l {0}
         run: |
           flake8 mattspy
-          flake8 bin/*
 
       - name: test
         shell: bash -l {0}
