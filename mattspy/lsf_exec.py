@@ -24,7 +24,7 @@ JOB_TEMPLATE = """\
 #BSUB -J "{jobname}"
 #BSUB -n 1
 #BSUB -oo ./{logfile}
-#BSUB -W {timelimit}:00
+#BSUB -W {timelimit}
 #BSUB -R "linux64 && rhel60 && scratch > 2"
 
 export OMP_NUM_THREADS=1
@@ -98,6 +98,12 @@ def _get_all_job_statuses(cjobs):
     return status
 
 
+def _fmt_time(timelimit):
+    hrs = timelimit // 60
+    mins = timelimit - hrs * 60
+    return "%02d:%02d" % (hrs, mins)
+
+
 def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit):
     cjob = None
 
@@ -122,7 +128,7 @@ def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit):
                     input=infile,
                     output=outfile,
                     logfile=logfile,
-                    timelimit=timelimit,
+                    timelimit=_fmt_time(timelimit),
                     jobname="job-%s-%s" % (exec.execid, subid),
                 )
             )
@@ -332,13 +338,13 @@ class SLACLSFExecutor():
         If True, the completed LSF job information is preserved. This can be
         useful to diagnose failures.
     timelimit : int, optional
-        Requested time limit in hours.
+        Requested time limit in minutes.
     verbose : int, optional
         This is ignored but is here for compatability. Use `debug=True`.
     """
     def __init__(
         self, max_workers=10000,
-        verbose=0, debug=False, timelimit=10,
+        verbose=0, debug=False, timelimit=610,
     ):
         self.max_workers = max_workers
         self.execid = uuid.uuid4().hex

@@ -14,7 +14,7 @@ def fun(n):
 def main():
     n_jobs = int(sys.argv[1])
 
-    with SLACLSFExecutor(debug=True) as exec:
+    with SLACLSFExecutor(debug=True, timelimit=10) as exec:
         futs = [
             exec.submit(fun, i)
             for i in range(n_jobs)
