@@ -23,7 +23,7 @@ JOB_TEMPLATE = """\
 #!/bin/bash
 #BSUB -J "{jobname}"
 #BSUB -n 1
-#BSUB -oo {logfile}.oe
+#BSUB -o {logfile}.oe
 #BSUB -W {timelimit}:00
 #BSUB -R "linux64 && rhel60 && scratch > 2"
 
@@ -121,6 +121,11 @@ def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit):
                     jobname="job-%s-%s" % (exec.execid, subid),
                 )
             )
+        subprocess.run(
+            "chmod u+x %s" % jobfile,
+            shell=True,
+            check=True,
+        )
 
         sub = subprocess.run(
             "bsub %s" % jobfile,
