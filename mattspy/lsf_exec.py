@@ -23,7 +23,7 @@ JOB_TEMPLATE = """\
 #!/bin/bash
 #BSUB -J "{jobname}"
 #BSUB -n 1
-#BSUB -o {logfile}.oe
+#BSUB -o {logfile}
 #BSUB -W {timelimit}:00
 #BSUB -R "linux64 && rhel60 && scratch > 2"
 
@@ -33,10 +33,15 @@ export MKL_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 
+mkdir -p /scratch/$LSB_JOBID
+export TMPDIR=/scratch/$LSB_JOBID
+
 mkdir -p $(dirname {output})
 mkdir -p $(dirname {logfile})
 
 mattspy-exec-run-pickled-task {input} {output} {logfile}
+
+rm -rf /scratch/$LSB_JOBID
 """
 
 
@@ -65,11 +70,13 @@ def _get_all_job_statuses_call(cjobs):
     )
     if res.returncode == 0:
         for line in res.stdout.decode("utf-8").splitlines():
+            print(line.strip())
             line = line.strip().split(" ")
             if line[0] == "JOBID":
                 continue
             jobid = line[0].strip()
             jobstate = line[2].strip()
+            print(jobid, jobstate)
             status[jobid] = jobstate
     return status
 
