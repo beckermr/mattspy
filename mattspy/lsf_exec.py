@@ -119,9 +119,9 @@ def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit):
         with open(jobfile, "w") as fp:
             fp.write(
                 JOB_TEMPLATE.format(
-                    input=infile,
-                    output=outfile,
-                    logfile=logfile,
+                    input=os.path.basename(infile),
+                    output=os.path.basename(outfile),
+                    logfile=os.path.basename(logfile),
                     timelimit=timelimit,
                     jobname="job-%s-%s" % (exec.execid, subid),
                 )
@@ -133,10 +133,11 @@ def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit):
         )
 
         sub = subprocess.run(
-            "bsub %s" % jobfile,
+            "bsub %s" % os.path.basename(jobfile),
             shell=True,
             check=True,
             capture_output=True,
+            cwd=os.path.join(exec.execdir, subid),
         )
 
         cjob = None
