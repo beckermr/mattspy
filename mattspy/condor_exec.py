@@ -31,8 +31,6 @@ STATUS_DICT = {
 WORKER_INIT = """\
 #!/bin/bash
 
-source ~/.bashrc
-
 export OMP_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
@@ -45,13 +43,11 @@ tmpdir=$_CONDOR_SCRATCH_DIR/tmp_me
 mkdir -p $tmpdir
 export TMPDIR=$tmpdir
 
-source activate %s
-
 mkdir -p $(dirname $2)
 mkdir -p $(dirname $3)
 touch $3
 
-condor-exec-run-pickled-task $1 $2 $3 &> $3
+mattspy-exec-run-pickled-task $1 $2 $3 &> $3
 """
 
 
@@ -138,12 +134,12 @@ Notification   = Never
 Executable     = %s
 request_memory = %dG
 kill_sig       = SIGINT
-leave_in_queue = TRUE
+leave_in_queue = True
 max_retries    = 0
-+Experiment    = "astro"
+getenv         = True
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
-preserve_relative_paths = TRUE
+preserve_relative_paths = True
 transfer_input_files = %s
 
 +job_name = "%s"
@@ -353,8 +349,6 @@ class BNLCondorExecutor():
 
     Parameters
     ----------
-    conda_env : str
-        The conda environment to activate before running code.
     max_workers : int, optional
         The maximum number of condor jobs. Default is 10000.
     debug : bool, optional
@@ -366,13 +360,12 @@ class BNLCondorExecutor():
         This is ignored but is here for compatability. Use `debug=True`.
     """
     def __init__(
-        self, conda_env, max_workers=10000,
+        self, max_workers=10000,
         verbose=0, debug=False, mem=2,
     ):
         self.max_workers = max_workers
         self.execid = uuid.uuid4().hex
         self.execdir = "condor-exec/%s" % self.execid
-        self.conda_env = conda_env
         self._exec = None
         self._num_nannies = 10
         self.verbose = verbose
@@ -397,7 +390,7 @@ class BNLCondorExecutor():
             )
 
         with open(os.path.join(self.execdir, "run.sh"), "w") as fp:
-            fp.write(WORKER_INIT % self.conda_env)
+            fp.write(WORKER_INIT)
         subprocess.run(
             "chmod u+x " + os.path.join(self.execdir, "run.sh"),
             shell=True,
