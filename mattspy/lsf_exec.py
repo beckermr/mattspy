@@ -70,7 +70,7 @@ def _get_all_job_statuses_call(cjobs):
     )
     if res.returncode == 0:
         for line in res.stdout.decode("utf-8").splitlines():
-            line = line.strip().split(" ")
+            line = line.strip().split()
             if line[0] == "JOBID":
                 continue
             jobid = line[0].strip()
