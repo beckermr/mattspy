@@ -10,26 +10,22 @@ import time
 
 from concurrent.futures import ThreadPoolExecutor, Future
 
-LOGGER = logging.getLogger("condor_exec")
+LOGGER = logging.getLogger("lsf_exec")
 
 ACTIVE_THREAD_LOCK = threading.RLock()
 
-ALL_CONDOR_JOBS = {}
+# TODO
+STATUS_DICT = {}
 
-STATUS_DICT = {
-    "": "unknown condor failure :(",
-    "1": "Idle",
-    "2": "Running",
-    "3": "Removed",
-    "4": "Completed",
-    "5": "Held",
-    "6": "Transferring Output",
-    "7": "Suspended",
-    "9": "Killed",
-}
+ALL_LSF_JOBS = {}
 
-WORKER_INIT = """\
+JOB_TEMPLATE = """\
 #!/bin/bash
+#BSUB -J "{jobname}"
+#BSUB -n 1
+#BSUB -oo ./{logfile}
+#BSUB -W {timelimit}
+#BSUB -R "linux64 && rhel60 && scratch > 2"
 
 export OMP_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
@@ -37,54 +33,49 @@ export MKL_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 
-# the condor system creates a scratch directory for us,
-# and cleans up afterward
-tmpdir=$_CONDOR_SCRATCH_DIR/tmp_me
-mkdir -p $tmpdir
-export TMPDIR=$tmpdir
+mkdir -p /scratch/$LSB_JOBID
+export TMPDIR=/scratch/$LSB_JOBID
 
-mkdir -p $(dirname $2)
-mkdir -p $(dirname $3)
-touch $3
+mkdir -p $(dirname {output})
+mkdir -p $(dirname {logfile})
 
-mattspy-exec-run-pickled-task $1 $2 $3 &> $3
+mattspy-exec-run-pickled-task {input} {output} {logfile}
+
+rm -rf /scratch/$LSB_JOBID
 """
 
 
-def _kill_condor_jobs():
+def _kill_lsf_jobs():
     chunksize = 100
     cjobs = []
-    for cjob in list(ALL_CONDOR_JOBS):
+    for cjob in list(ALL_LSF_JOBS):
         cjobs.append(cjob)
         if len(cjobs) == chunksize:
             _cjobs = " ".join(cjobs)
-            subprocess.run("condor_rm " + _cjobs, shell=True, capture_output=True)
-            subprocess.run(
-                "condor_rm -forcex " + _cjobs, shell=True, capture_output=True)
+            subprocess.run("bkill -s 9 " + _cjobs, shell=True, capture_output=True)
             cjobs = []
 
     if cjobs:
         _cjobs = " ".join(cjobs)
-        subprocess.run("condor_rm " + _cjobs, shell=True, capture_output=True)
-        subprocess.run("condor_rm -forcex " + _cjobs, shell=True, capture_output=True)
+        subprocess.run("bkill -s 9 " + _cjobs, shell=True, capture_output=True)
         cjobs = []
 
 
 def _get_all_job_statuses_call(cjobs):
     status = {}
     res = subprocess.run(
-        "condor_q %s -af:jr JobStatus ExitBySignal" % " ".join(cjobs),
+        "bjobs %s" % " ".join(cjobs),
         shell=True,
         capture_output=True,
     )
     if res.returncode == 0:
         for line in res.stdout.decode("utf-8").splitlines():
-            line = line.strip().split(" ")
-            if line[0] in cjobs:
-                if line[2].strip() == "true":
-                    status[line[0]] = "9"
-                else:
-                    status[line[0]] = line[1]
+            line = line.strip().split()
+            if line[0] == "JOBID":
+                continue
+            jobid = line[0].strip()
+            jobstate = line[2].strip()
+            status[jobid] = jobstate
     return status
 
 
@@ -107,12 +98,18 @@ def _get_all_job_statuses(cjobs):
     return status
 
 
-def _submit_condor_job(exec, subid, nanny_id, fut, job_data, mem_req):
+def _fmt_time(timelimit):
+    hrs = timelimit // 60
+    mins = timelimit - hrs * 60
+    return "%02d:%02d" % (hrs, mins)
+
+
+def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit):
     cjob = None
 
     if not fut.cancelled():
         infile = os.path.join(exec.execdir, subid, "input.pkl")
-        condorfile = os.path.join(exec.execdir, subid, "condor.sub")
+        jobfile = os.path.join(exec.execdir, subid, "run.sh")
         outfile = os.path.join(exec.execdir, subid, "output.pkl")
         logfile = os.path.join(exec.execdir, subid, "log.oe")
 
@@ -124,43 +121,25 @@ def _submit_condor_job(exec, subid, nanny_id, fut, job_data, mem_req):
             cloudpickle.dump(job_data, fp)
 
         ##############################
-        # submit the condor job
-        with open(condorfile, "w") as fp:
+        # submit the LSF job
+        with open(jobfile, "w") as fp:
             fp.write(
-                """\
-Universe       = vanilla
-Notification   = Never
-# this executable must have u+x bits
-Executable     = %s
-request_memory = %dG
-kill_sig       = SIGINT
-leave_in_queue = True
-max_retries    = 0
-getenv         = True
-should_transfer_files = YES
-when_to_transfer_output = ON_EXIT
-preserve_relative_paths = True
-transfer_input_files = %s
-
-+job_name = "%s"
-transfer_output_files = %s,%s
-Arguments = %s %s %s
-Queue
-""" % (
-                    os.path.join(exec.execdir, "run.sh"),
-                    mem_req,
-                    infile,
-                    "job-%s-%s" % (exec.execid, subid),
-                    outfile,
-                    logfile,
-                    infile,
-                    outfile,
-                    logfile,
-                ),
+                JOB_TEMPLATE.format(
+                    input=infile,
+                    output=outfile,
+                    logfile=logfile,
+                    timelimit=_fmt_time(timelimit),
+                    jobname="job-%s-%s" % (exec.execid, subid),
+                )
             )
+        subprocess.run(
+            "chmod u+x %s" % jobfile,
+            shell=True,
+            check=True,
+        )
 
         sub = subprocess.run(
-            "condor_submit %s" % condorfile,
+            "bsub < %s" % jobfile,
             shell=True,
             check=True,
             capture_output=True,
@@ -169,25 +148,28 @@ Queue
         cjob = None
         for line in sub.stdout.decode("utf-8").splitlines():
             line = line.strip()
-            if "submitted to cluster" in line:
-                line = line.split(" ")
-                cjob = line[5] + "0"
+            line = line.split(" ")
+            cjob = line[1].replace("<", "").replace(">", "")
+            try:
+                int(cjob)
                 break
+            except Exception:
+                continue
 
         assert cjob is not None
-        ALL_CONDOR_JOBS[cjob] = None
+        ALL_LSF_JOBS[cjob] = None
 
     return cjob
 
 
-def _attempt_submit(exec, nanny_id, subid, mem_req):
+def _attempt_submit(exec, nanny_id, subid, timelimit):
     submitted = False
     cjob = exec._nanny_subids[nanny_id][subid][0]
     fut = exec._nanny_subids[nanny_id][subid][1]
     job_data = exec._nanny_subids[nanny_id][subid][2]
 
     if cjob is None and job_data is not None:
-        LOGGER.debug("submitting condor job for subid %s", subid)
+        LOGGER.debug("submitting LSF job for subid %s", subid)
         with ACTIVE_THREAD_LOCK:
             if exec._num_jobs < exec.max_workers:
                 exec._num_jobs += 1
@@ -196,15 +178,15 @@ def _attempt_submit(exec, nanny_id, subid, mem_req):
                 submit_job = False
 
         if submit_job:
-            cjob = _submit_condor_job(
-                exec, subid, nanny_id, fut, job_data, mem_req
+            cjob = _submit_lsf_job(
+                exec, subid, nanny_id, fut, job_data, timelimit,
             )
 
             if cjob is None:
-                LOGGER.debug("could not submit condor job for subid %s", subid)
+                LOGGER.debug("could not submit LSF job for subid %s", subid)
                 del exec._nanny_subids[nanny_id][subid]
             else:
-                LOGGER.debug("submitted condor job %s for subid %s", cjob, subid)
+                LOGGER.debug("submitted LSF job %s for subid %s", cjob, subid)
                 fut.cjob = cjob
                 exec._nanny_subids[nanny_id][subid] = (cjob, fut, None)
                 submitted = True
@@ -219,23 +201,24 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
         if exec._nanny_subids[nanny_id][_subid][0] == cjob:
             subid = _subid
             break
-    if subid is not None and status_code in ["4", "3", "5", "7", "9"]:
+    # TODO
+    if subid is not None and status_code in ["DONE", "EXIT"]:
         outfile = os.path.join(exec.execdir, subid, "output.pkl")
         infile = os.path.join(exec.execdir, subid, "input.pkl")
-        condorfile = os.path.join(exec.execdir, subid, "condor.sub")
+        jobfile = os.path.join(exec.execdir, subid, "run.sh")
         logfile = os.path.join(exec.execdir, subid, "log.oe")
 
-        del ALL_CONDOR_JOBS[cjob]
+        del ALL_LSF_JOBS[cjob]
         if not debug:
             subprocess.run(
-                "condor_rm %s; condor_rm -forcex %s" % (cjob, cjob),
+                "bkill -s 9 %s" % cjob,
                 shell=True,
                 capture_output=True,
             )
 
         if not os.path.exists(outfile):
             LOGGER.debug(
-                "output %s does not exist for subid %s, condor job %s",
+                "output %s does not exist for subid %s, LSF job %s",
                 outfile,
                 subid,
                 cjob,
@@ -246,19 +229,19 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
                 res = joblib.load(outfile)
             except Exception as e:
                 res = e
-        elif status_code in ["3", "5", "7", "9"]:
+        elif status_code in ["EXIT"]:
             res = RuntimeError(
-                "Condor job %s: status %s" % (
+                "LSF job %s: status %s" % (
                     subid, STATUS_DICT[status_code]
                 )
             )
         else:
             res = RuntimeError(
-                "Condor job %s: no status or job output found!" % subid)
+                "LSF job %s: no status or job output found!" % subid)
 
         if not debug:
             subprocess.run(
-                "rm -f %s %s %s %s" % (infile, outfile, condorfile, logfile),
+                "rm -f %s %s %s %s" % (infile, outfile, jobfile, logfile),
                 shell=True,
             )
 
@@ -278,7 +261,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
 
 
 def _nanny_function(
-    exec, nanny_id, poll_delay, debug, mem,
+    exec, nanny_id, poll_delay, debug, timelimit,
 ):
     LOGGER.info("nanny %d started for exec %s", nanny_id, exec.execid)
 
@@ -305,7 +288,7 @@ def _nanny_function(
                 if n_to_submit > 0:
                     n_submitted = 0
                     for subid in subids:
-                        if _attempt_submit(exec, nanny_id, subid, mem):
+                        if _attempt_submit(exec, nanny_id, subid, timelimit):
                             n_submitted += 1
                         if n_submitted >= 100:
                             break
@@ -344,44 +327,44 @@ def _nanny_function(
         )
 
 
-class BNLCondorExecutor():
-    """A concurrent.futures executor for the BNL condor system.
+class SLACLSFExecutor():
+    """A concurrent.futures executor for the SLAC LSF system.
 
     Parameters
     ----------
     max_workers : int, optional
-        The maximum number of condor jobs. Default is 10000.
+        The maximum number of LSF jobs. Default is 10000.
     debug : bool, optional
-        If True, the completed condor jobs are left in the queue. This can be
-        useful to diagnose failures for jobs in the "held" state.
-    mem : int, optional
-        Requested memory in GB. Default is 2.
+        If True, the completed LSF job information is preserved. This can be
+        useful to diagnose failures.
+    timelimit : int, optional
+        Requested time limit in minutes.
     verbose : int, optional
         This is ignored but is here for compatability. Use `debug=True`.
     """
     def __init__(
         self, max_workers=10000,
-        verbose=0, debug=False, mem=2,
+        verbose=0, debug=False, timelimit=610,
     ):
         self.max_workers = max_workers
         self.execid = uuid.uuid4().hex
-        self.execdir = "condor-exec/%s" % self.execid
+        self.execdir = "lsf-exec/%s" % self.execid
         self._exec = None
         self._num_nannies = 10
         self.verbose = verbose
         self.debug = debug
-        self.mem = mem
+        self.timelimit = timelimit
 
         if not self.debug:
-            atexit.register(_kill_condor_jobs)
+            atexit.register(_kill_lsf_jobs)
         else:
-            atexit.unregister(_kill_condor_jobs)
+            atexit.unregister(_kill_lsf_jobs)
 
     def __enter__(self):
         os.makedirs(self.execdir, exist_ok=True)
         if self.debug:
             print(
-                "starting condor executor: "
+                "starting LSF executor: "
                 "exec dir %s - max workers %s" % (
                     self.execdir,
                     self.max_workers,
@@ -389,13 +372,6 @@ class BNLCondorExecutor():
                 flush=True,
             )
 
-        with open(os.path.join(self.execdir, "run.sh"), "w") as fp:
-            fp.write(WORKER_INIT)
-        subprocess.run(
-            "chmod u+x " + os.path.join(self.execdir, "run.sh"),
-            shell=True,
-            check=True,
-        )
         self._exec = ThreadPoolExecutor(max_workers=self._num_nannies)
         self._done = False
         self._nanny_subids = [{} for _ in range(self._num_nannies)]
@@ -408,7 +384,7 @@ class BNLCondorExecutor():
                 i,
                 max(1, self._num_nannies/10),
                 self.debug,
-                self.mem,
+                self.timelimit,
             )
             for i in range(self._num_nannies)
         ]

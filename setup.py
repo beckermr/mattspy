@@ -13,7 +13,7 @@ setup(
     setup_requires=['setuptools_scm', 'setuptools_scm_git_archive'],
     entry_points={
         'console_scripts': [
-            'condor-exec-run-pickled-task = mattspy.condor_exec_run:run_pickled_task',
+            'mattspy-exec-run-pickled-task = mattspy.mattspy_exec_run:run_pickled_task',
         ],
     },
 )

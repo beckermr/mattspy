@@ -13,3 +13,4 @@ except PackageNotFoundError:
 from . import stats
 from . import plotting
 from .condor_exec import BNLCondorExecutor
+from .lsf_exec import SLACLSFExecutor

@@ -3,7 +3,7 @@ import time
 
 from concurrent.futures import as_completed
 from esutil.pbar import PBar
-from mattspy import BNLCondorExecutor
+from mattspy import SLACLSFExecutor
 
 
 def fun(n):
@@ -14,7 +14,7 @@ def fun(n):
 def main():
     n_jobs = int(sys.argv[1])
 
-    with BNLCondorExecutor(debug=True) as exec:
+    with SLACLSFExecutor(debug=True, timelimit=10) as exec:
         futs = [
             exec.submit(fun, i)
             for i in range(n_jobs)
