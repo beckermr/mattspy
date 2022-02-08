@@ -137,7 +137,6 @@ def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit):
             shell=True,
             check=True,
             capture_output=True,
-            cwd=os.path.join(exec.execdir, subid),
         )
 
         cjob = None
