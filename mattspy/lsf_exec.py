@@ -23,7 +23,7 @@ JOB_TEMPLATE = """\
 #!/bin/bash
 #BSUB -J "{jobname}"
 #BSUB -n 1
-#BSUB -o {logfile}
+#BSUB -oo ./{logfile}
 #BSUB -W {timelimit}:00
 #BSUB -R "linux64 && rhel60 && scratch > 2"
 
@@ -75,8 +75,6 @@ def _get_all_job_statuses_call(cjobs):
                 continue
             jobid = line[0].strip()
             jobstate = line[2].strip()
-            print(line)
-            print(jobid, jobstate)
             status[jobid] = jobstate
     return status
 
