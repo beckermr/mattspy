@@ -14,8 +14,10 @@ LOGGER = logging.getLogger("lsf_exec")
 
 ACTIVE_THREAD_LOCK = threading.RLock()
 
-# TODO
-STATUS_DICT = {}
+STATUS_DICT = {
+    "DONE": "job completed",
+    "EXIT": "job failed and exited"
+}
 
 ALL_LSF_JOBS = {}
 
