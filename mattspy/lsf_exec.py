@@ -363,7 +363,7 @@ class SLACLSFExecutor():
         self.execid = uuid.uuid4().hex
         self.execdir = "lsf-exec/%s" % self.execid
         self._exec = None
-        self._num_nannies = 10
+        self._num_nannies = 1
         self.verbose = verbose
         self.debug = debug
         self.timelimit = timelimit
