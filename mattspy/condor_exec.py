@@ -196,12 +196,17 @@ def _attempt_submit(exec, nanny_id, subid, mem_req):
                 submit_job = False
 
         if submit_job:
-            cjob = _submit_condor_job(
-                exec, subid, nanny_id, fut, job_data, mem_req
-            )
+            try:
+                cjob = _submit_condor_job(
+                    exec, subid, nanny_id, fut, job_data, mem_req
+                )
+                e = "future cancelled"
+            except Exception as _e:
+                e = _e
+                cjob = None
 
             if cjob is None:
-                LOGGER.debug("could not submit condor job for subid %s", subid)
+                LOGGER.error("could not submit condor job for subid %s: %s", subid, e)
                 del exec._nanny_subids[nanny_id][subid]
             else:
                 LOGGER.debug("submitted condor job %s for subid %s", cjob, subid)

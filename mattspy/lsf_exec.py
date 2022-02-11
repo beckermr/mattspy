@@ -201,7 +201,8 @@ def _attempt_submit(exec, nanny_id, subid, timelimit):
                 cjob = None
 
             if cjob is None:
-                LOGGER.debug("could not submit LSF job for subid %s: %s", subid, e)
+                LOGGER.error("could not submit LSF job for subid %s: %s", subid, e)
+                del exec._nanny_subids[nanny_id][subid]
             else:
                 LOGGER.debug("submitted LSF job %s for subid %s", cjob, subid)
                 fut.cjob = cjob
