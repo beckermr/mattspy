@@ -16,7 +16,8 @@ ACTIVE_THREAD_LOCK = threading.RLock()
 
 STATUS_DICT = {
     "DONE": "job completed",
-    "EXIT": "job failed and exited"
+    "EXIT": "job failed and exited",
+    "NOT FOUND": "job was not found",
 }
 
 ALL_LSF_JOBS = {}
@@ -72,12 +73,17 @@ def _get_all_job_statuses_call(cjobs):
     )
     if res.returncode == 0:
         for line in res.stdout.decode("utf-8").splitlines():
-            line = line.strip().split()
-            if line[0] == "JOBID":
+            line = line.strip()
+            parts = line.split()
+            if parts[0] == "JOBID":
                 continue
-            jobid = line[0].strip()
-            jobstate = line[2].strip()
-            status[jobid] = jobstate
+            elif "not found" in line:
+                jobid = parts[1].replace("<", "").replace(">", "")
+                jobstate = "NOT FOUND"
+            else:
+                jobid = parts[0].strip()
+                jobstate = parts[2].strip()
+                status[jobid] = jobstate
     return status
 
 
@@ -203,8 +209,8 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
         if exec._nanny_subids[nanny_id][_subid][0] == cjob:
             subid = _subid
             break
-    # TODO
-    if subid is not None and status_code in ["DONE", "EXIT"]:
+
+    if subid is not None and status_code in ["DONE", "EXIT", "NOT FOUND"]:
         outfile = os.path.join(exec.execdir, subid, "output.pkl")
         infile = os.path.join(exec.execdir, subid, "input.pkl")
         jobfile = os.path.join(exec.execdir, subid, "run.sh")
@@ -231,9 +237,9 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
                 res = joblib.load(outfile)
             except Exception as e:
                 res = e
-        elif status_code in ["EXIT"]:
+        elif status_code in ["DONE", "EXIT", "NOT FOUND"]:
             res = RuntimeError(
-                "LSF job %s: status %s" % (
+                "LSF job %s: status %s w/ no output" % (
                     subid, STATUS_DICT[status_code]
                 )
             )
