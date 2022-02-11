@@ -18,6 +18,10 @@ STATUS_DICT = {
     "DONE": "job completed",
     "EXIT": "job failed and exited",
     "NOT FOUND": "job was not found",
+    "PEND": "job is pending",
+    "PSUSP": "job was suspended by owner when pending",
+    "USUSP": "job was suspended by owner when pending",
+    "SSUSP": "job was suspended by systen",
 }
 
 ALL_LSF_JOBS = {}
@@ -80,6 +84,7 @@ def _get_all_job_statuses_call(cjobs):
             elif "not found" in line:
                 jobid = parts[1].replace("<", "").replace(">", "")
                 jobstate = "NOT FOUND"
+                status[jobid] = jobstate
             else:
                 jobid = parts[0].strip()
                 jobstate = parts[2].strip()
