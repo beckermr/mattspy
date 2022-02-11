@@ -191,13 +191,17 @@ def _attempt_submit(exec, nanny_id, subid, timelimit):
                 submit_job = False
 
         if submit_job:
-            cjob = _submit_lsf_job(
-                exec, subid, nanny_id, fut, job_data, timelimit,
-            )
+            try:
+                cjob = _submit_lsf_job(
+                    exec, subid, nanny_id, fut, job_data, timelimit,
+                )
+                e = "future cancelled"
+            except Exception as _e:
+                e = _e
+                cjob = None
 
             if cjob is None:
-                LOGGER.debug("could not submit LSF job for subid %s", subid)
-                del exec._nanny_subids[nanny_id][subid]
+                LOGGER.debug("could not submit LSF job for subid %s: %s", subid, e)
             else:
                 LOGGER.debug("submitted LSF job %s for subid %s", cjob, subid)
                 fut.cjob = cjob
@@ -363,7 +367,7 @@ class SLACLSFExecutor():
         self.execid = uuid.uuid4().hex
         self.execdir = "lsf-exec/%s" % self.execid
         self._exec = None
-        self._num_nannies = 1
+        self._num_nannies = 10
         self.verbose = verbose
         self.debug = debug
         self.timelimit = timelimit
