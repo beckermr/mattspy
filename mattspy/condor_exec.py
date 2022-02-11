@@ -107,7 +107,7 @@ def _get_all_job_statuses(cjobs):
     return status
 
 
-def _submit_condor_job(exec, subid, nanny_id, fut, job_data, mem_req):
+def _submit_condor_job(exec, subid, nanny_id, fut, job_data, mem_req, extra_condor_submit_lines):
     cjob = None
 
     if not fut.cancelled():
@@ -141,6 +141,7 @@ should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
 preserve_relative_paths = True
 transfer_input_files = %s
+%s
 
 +job_name = "%s"
 transfer_output_files = %s,%s
@@ -150,6 +151,7 @@ Queue
                     os.path.join(exec.execdir, "run.sh"),
                     mem_req,
                     infile,
+                    extra_condor_submit_lines,
                     "job-%s-%s" % (exec.execid, subid),
                     outfile,
                     logfile,
@@ -180,7 +182,7 @@ Queue
     return cjob
 
 
-def _attempt_submit(exec, nanny_id, subid, mem_req):
+def _attempt_submit(exec, nanny_id, subid, mem_req, extra_condor_submit_lines):
     submitted = False
     cjob = exec._nanny_subids[nanny_id][subid][0]
     fut = exec._nanny_subids[nanny_id][subid][1]
@@ -198,7 +200,7 @@ def _attempt_submit(exec, nanny_id, subid, mem_req):
         if submit_job:
             try:
                 cjob = _submit_condor_job(
-                    exec, subid, nanny_id, fut, job_data, mem_req
+                    exec, subid, nanny_id, fut, job_data, mem_req, extra_condor_submit_lines
                 )
                 e = "future cancelled"
             except Exception as _e:
@@ -283,7 +285,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
 
 
 def _nanny_function(
-    exec, nanny_id, poll_delay, debug, mem,
+    exec, nanny_id, poll_delay, debug, mem, extra_condor_submit_lines,
 ):
     LOGGER.info("nanny %d started for exec %s", nanny_id, exec.execid)
 
@@ -310,7 +312,7 @@ def _nanny_function(
                 if n_to_submit > 0:
                     n_submitted = 0
                     for subid in subids:
-                        if _attempt_submit(exec, nanny_id, subid, mem):
+                        if _attempt_submit(exec, nanny_id, subid, mem, extra_condor_submit_lines):
                             n_submitted += 1
                         if n_submitted >= 100:
                             break
@@ -363,10 +365,12 @@ class BNLCondorExecutor():
         Requested memory in GB. Default is 2.
     verbose : int, optional
         This is ignored but is here for compatability. Use `debug=True`.
+    extra_condor_submit_lines : str, optional
+        Extra lines of text to pass to the condor submit script.
     """
     def __init__(
         self, max_workers=10000,
-        verbose=0, debug=False, mem=2,
+        verbose=0, debug=False, mem=2, extra_condor_submit_lines=None,
     ):
         self.max_workers = max_workers
         self.execid = uuid.uuid4().hex
@@ -376,6 +380,7 @@ class BNLCondorExecutor():
         self.verbose = verbose
         self.debug = debug
         self.mem = mem
+        self.extra_condor_submit_lines = extra_condor_submit_lines or ""
 
         if not self.debug:
             atexit.register(_kill_condor_jobs)
@@ -414,6 +419,7 @@ class BNLCondorExecutor():
                 max(1, self._num_nannies/10),
                 self.debug,
                 self.mem,
+                self.extra_condor_submit_lines,
             )
             for i in range(self._num_nannies)
         ]
