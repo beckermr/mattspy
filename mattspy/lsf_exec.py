@@ -154,9 +154,17 @@ def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit):
         sub = subprocess.run(
             "bsub < %s" % jobfile,
             shell=True,
-            check=True,
             capture_output=True,
         )
+        if sub.returncode != 0:
+            raise RuntimeError(
+                "Error running 'bsub < %s' - return code %d - stdout '%s' - stderr '%s'" % (
+                    jobfile,
+                    sub.returncode,
+                    sub.stdout.decode("utf-8"),
+                    sub.stderr.decode("utf-8"),
+                )
+            )
 
         cjob = None
         for line in sub.stdout.decode("utf-8").splitlines():
@@ -197,12 +205,12 @@ def _attempt_submit(exec, nanny_id, subid, timelimit):
                 )
                 e = "future cancelled"
             except Exception as _e:
-                e = _e
+                e = repr(_e)
                 cjob = None
 
             if cjob is None:
                 LOGGER.error("could not submit LSF job for subid %s: %s", subid, e)
-                del exec._nanny_subids[nanny_id][subid]
+                exec._nanny_subids[nanny_id][subid] = (None, None, None)
             else:
                 LOGGER.debug("submitted LSF job %s for subid %s", cjob, subid)
                 fut.cjob = cjob

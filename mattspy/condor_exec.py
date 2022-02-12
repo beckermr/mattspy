@@ -164,9 +164,17 @@ Queue
         sub = subprocess.run(
             "condor_submit %s" % condorfile,
             shell=True,
-            check=True,
             capture_output=True,
         )
+        if sub.returncode != 0:
+            raise RuntimeError(
+                "Error running 'condor_submit %s' - return code %d - stdout '%s' - stderr '%s'" % (
+                    condorfile,
+                    sub.returncode,
+                    sub.stdout.decode("utf-8"),
+                    sub.stderr.decode("utf-8"),
+                )
+            )
 
         cjob = None
         for line in sub.stdout.decode("utf-8").splitlines():
@@ -204,12 +212,12 @@ def _attempt_submit(exec, nanny_id, subid, mem_req, extra_condor_submit_lines):
                 )
                 e = "future cancelled"
             except Exception as _e:
-                e = _e
+                e = repr(_e)
                 cjob = None
 
             if cjob is None:
                 LOGGER.error("could not submit condor job for subid %s: %s", subid, e)
-                del exec._nanny_subids[nanny_id][subid]
+                exec._nanny_subids[nanny_id][subid] = (None, None, None)
             else:
                 LOGGER.debug("submitted condor job %s for subid %s", cjob, subid)
                 fut.cjob = cjob
