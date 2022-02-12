@@ -29,10 +29,10 @@ ALL_LSF_JOBS = {}
 JOB_TEMPLATE = """\
 #!/bin/bash
 #BSUB -J "{jobname}"
-#BSUB -n 1
+#BSUB -n {n}
 #BSUB -oo ./{logfile}
 #BSUB -W {timelimit}
-#BSUB -R "linux64 && rhel60 && scratch > 2"
+#BSUB -R "linux64 && scratch > 2{mem_str}"
 
 export OMP_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
@@ -117,7 +117,7 @@ def _fmt_time(timelimit):
     return "%02d:%02d" % (hrs, mins)
 
 
-def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit):
+def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit, mem):
     cjob = None
 
     if not fut.cancelled():
@@ -133,6 +133,14 @@ def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit):
         with open(infile, "wb") as fp:
             cloudpickle.dump(job_data, fp)
 
+        # compute mem requirement
+        if mem > 4:
+            mem_str = ' && span[hosts=1]'
+            n = 2
+        else:
+            n = 1
+            mem_str = ""
+
         ##############################
         # submit the LSF job
         with open(jobfile, "w") as fp:
@@ -143,6 +151,8 @@ def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit):
                     logfile=logfile,
                     timelimit=_fmt_time(timelimit),
                     jobname="job-%s-%s" % (exec.execid, subid),
+                    mem_str=mem_str,
+                    n=n,
                 )
             )
         subprocess.run(
@@ -183,7 +193,7 @@ def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit):
     return cjob
 
 
-def _attempt_submit(exec, nanny_id, subid, timelimit):
+def _attempt_submit(exec, nanny_id, subid, timelimit, mem):
     submitted = False
     cjob = exec._nanny_subids[nanny_id][subid][0]
     fut = exec._nanny_subids[nanny_id][subid][1]
@@ -201,7 +211,7 @@ def _attempt_submit(exec, nanny_id, subid, timelimit):
         if submit_job:
             try:
                 cjob = _submit_lsf_job(
-                    exec, subid, nanny_id, fut, job_data, timelimit,
+                    exec, subid, nanny_id, fut, job_data, timelimit, mem,
                 )
                 e = "future cancelled"
             except Exception as _e:
@@ -291,7 +301,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
 
 
 def _nanny_function(
-    exec, nanny_id, poll_delay, debug, timelimit,
+    exec, nanny_id, poll_delay, debug, timelimit, mem,
 ):
     LOGGER.info("nanny %d started for exec %s", nanny_id, exec.execid)
 
@@ -318,7 +328,7 @@ def _nanny_function(
                 if n_to_submit > 0:
                     n_submitted = 0
                     for subid in subids:
-                        if _attempt_submit(exec, nanny_id, subid, timelimit):
+                        if _attempt_submit(exec, nanny_id, subid, timelimit, mem):
                             n_submitted += 1
                         if n_submitted >= 100:
                             break
@@ -371,10 +381,12 @@ class SLACLSFExecutor():
         Requested time limit in minutes.
     verbose : int, optional
         This is ignored but is here for compatability. Use `debug=True`.
+    mem : float, optional
+        The required memory in GB. Default is 3.8.
     """
     def __init__(
         self, max_workers=5000,
-        verbose=0, debug=False, timelimit=2820,
+        verbose=0, debug=False, timelimit=2820, mem=3.8,
     ):
         self.max_workers = max_workers
         self.execid = uuid.uuid4().hex
@@ -384,6 +396,7 @@ class SLACLSFExecutor():
         self.verbose = verbose
         self.debug = debug
         self.timelimit = timelimit
+        self.mem = mem
 
         if not self.debug:
             atexit.register(_kill_lsf_jobs)
@@ -415,6 +428,7 @@ class SLACLSFExecutor():
                 max(1, self._num_nannies/10),
                 self.debug,
                 self.timelimit,
+                self.mem,
             )
             for i in range(self._num_nannies)
         ]
