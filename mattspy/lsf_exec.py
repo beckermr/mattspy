@@ -365,8 +365,8 @@ class SLACLSFExecutor():
         This is ignored but is here for compatability. Use `debug=True`.
     """
     def __init__(
-        self, max_workers=10000,
-        verbose=0, debug=False, timelimit=610,
+        self, max_workers=5000,
+        verbose=0, debug=False, timelimit=2820,
     ):
         self.max_workers = max_workers
         self.execid = uuid.uuid4().hex
