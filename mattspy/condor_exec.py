@@ -255,7 +255,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
                 res = e
         elif status_code in ["3", "5", "7", "9"]:
             res = RuntimeError(
-                "Condor job %s: status %s" % (
+                "Condor job %s: status '%s' w/ no output" % (
                     subid, STATUS_DICT[status_code]
                 )
             )
@@ -263,17 +263,21 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
             res = RuntimeError(
                 "Condor job %s: no status or job output found!" % subid)
 
-        if not debug:
-            subprocess.run(
-                "rm -f %s %s %s %s" % (infile, outfile, condorfile, logfile),
-                shell=True,
-            )
-
         fut = exec._nanny_subids[nanny_id][subid][1]
         if isinstance(res, Exception):
             fut.set_exception(res)
+            if not debug:
+                subprocess.run(
+                    "rm -f %s %s %s" % (infile, outfile, condorfile),
+                    shell=True,
+                )
         else:
             fut.set_result(res)
+            if not debug:
+                subprocess.run(
+                    "rm -f %s %s %s %s" % (infile, outfile, condorfile, logfile),
+                    shell=True,
+                )
 
         exec._nanny_subids[nanny_id][subid] = (None, None, None)
         with ACTIVE_THREAD_LOCK:

@@ -249,7 +249,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
                 res = e
         elif status_code in ["DONE", "EXIT", "NOT FOUND"]:
             res = RuntimeError(
-                "LSF job %s: status %s w/ no output" % (
+                "LSF job %s: status '%s' w/ no output" % (
                     subid, STATUS_DICT[status_code]
                 )
             )
@@ -257,17 +257,21 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
             res = RuntimeError(
                 "LSF job %s: no status or job output found!" % subid)
 
-        if not debug:
-            subprocess.run(
-                "rm -f %s %s %s %s" % (infile, outfile, jobfile, logfile),
-                shell=True,
-            )
-
         fut = exec._nanny_subids[nanny_id][subid][1]
         if isinstance(res, Exception):
             fut.set_exception(res)
+            if not debug:
+                subprocess.run(
+                    "rm -f %s %s %s" % (infile, outfile, jobfile),
+                    shell=True,
+                )
         else:
             fut.set_result(res)
+            if not debug:
+                subprocess.run(
+                    "rm -f %s %s %s %s" % (infile, outfile, jobfile, logfile),
+                    shell=True,
+                )
 
         exec._nanny_subids[nanny_id][subid] = (None, None, None)
         with ACTIVE_THREAD_LOCK:
