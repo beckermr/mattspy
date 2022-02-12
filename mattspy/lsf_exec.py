@@ -22,6 +22,7 @@ STATUS_DICT = {
     "PSUSP": "job was suspended by owner when pending",
     "USUSP": "job was suspended by owner when pending",
     "SSUSP": "job was suspended by systen",
+    "RUN": "job is running",
 }
 
 ALL_LSF_JOBS = {}
@@ -89,6 +90,11 @@ def _get_all_job_statuses_call(cjobs):
                 jobid = parts[0].strip()
                 jobstate = parts[2].strip()
                 status[jobid] = jobstate
+                try:
+                    int(jobid)
+                    assert jobstate in STATUS_DICT
+                except Exception:
+                    print("\n" + line.strip(), flush=True)
     return status
 
 
