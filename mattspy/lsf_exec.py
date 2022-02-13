@@ -74,12 +74,14 @@ def _get_all_job_statuses_call(cjobs):
     res = subprocess.run(
         "bjobs %s" % " ".join(cjobs),
         shell=True,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
     )
     if res.returncode == 0:
         for line in res.stdout.decode("utf-8").splitlines():
             line = line.strip()
             parts = line.split()
+            jobid = None
             if parts[0] == "JOBID":
                 continue
             elif "not found" in line:
@@ -90,11 +92,14 @@ def _get_all_job_statuses_call(cjobs):
                 jobid = parts[0].strip()
                 jobstate = parts[2].strip()
                 status[jobid] = jobstate
+
+            if jobid is not None:
                 try:
                     int(jobid)
                     assert jobstate in STATUS_DICT
                 except Exception:
-                    print("\n" + line.strip(), flush=True)
+                    LOGGER.error("job id and state not parsed: '%s'", line.strip())
+
     return status
 
 
@@ -165,12 +170,14 @@ def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit, mem):
             "chmod u+x %s" % jobfile,
             shell=True,
             check=True,
+            capture_output=True,
         )
 
         sub = subprocess.run(
             "bsub < %s" % jobfile,
             shell=True,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
         )
         if sub.returncode != 0:
             raise RuntimeError(
@@ -288,6 +295,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
                 subprocess.run(
                     "rm -f %s %s %s" % (infile, outfile, jobfile),
                     shell=True,
+                    capture_output=True,
                 )
         else:
             fut.set_result(res)
@@ -295,6 +303,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
                 subprocess.run(
                     "rm -f %s %s %s %s" % (infile, outfile, jobfile, logfile),
                     shell=True,
+                    capture_output=True,
                 )
 
         exec._nanny_subids[nanny_id][subid] = (None, None, None)
@@ -448,6 +457,7 @@ class SLACLSFExecutor():
             subprocess.run(
                 f"rm -rf {self.execdir}",
                 shell=True,
+                capture_output=True,
             )
 
     def submit(self, func, *args, **kwargs):

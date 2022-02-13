@@ -75,7 +75,8 @@ def _get_all_job_statuses_call(cjobs):
     res = subprocess.run(
         "condor_q %s -af:jr JobStatus ExitBySignal" % " ".join(cjobs),
         shell=True,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
     )
     if res.returncode == 0:
         for line in res.stdout.decode("utf-8").splitlines():
@@ -164,7 +165,8 @@ Queue
         sub = subprocess.run(
             "condor_submit %s" % condorfile,
             shell=True,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
         )
         if sub.returncode != 0:
             raise RuntimeError(
@@ -278,6 +280,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
                 subprocess.run(
                     "rm -f %s %s %s" % (infile, outfile, condorfile),
                     shell=True,
+                    capture_output=True,
                 )
         else:
             fut.set_result(res)
@@ -285,6 +288,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
                 subprocess.run(
                     "rm -f %s %s %s %s" % (infile, outfile, condorfile, logfile),
                     shell=True,
+                    capture_output=True,
                 )
 
         exec._nanny_subids[nanny_id][subid] = (None, None, None)
@@ -417,6 +421,7 @@ class BNLCondorExecutor():
             "chmod u+x " + os.path.join(self.execdir, "run.sh"),
             shell=True,
             check=True,
+            capture_output=True,
         )
         self._exec = ThreadPoolExecutor(max_workers=self._num_nannies)
         self._done = False
@@ -445,6 +450,7 @@ class BNLCondorExecutor():
             subprocess.run(
                 f"rm -rf {self.execdir}",
                 shell=True,
+                capture_output=True,
             )
 
     def submit(self, func, *args, **kwargs):
