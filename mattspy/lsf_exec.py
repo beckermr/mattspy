@@ -15,7 +15,8 @@ LOGGER = logging.getLogger("lsf_exec")
 ACTIVE_THREAD_LOCK = threading.RLock()
 
 SCHED_DELAY = 120
-FS_DELAY = 10
+FS_DELAY = 30
+POLL_DELAY = 10
 
 STATUS_DICT = {
     None: "unknown",
@@ -90,6 +91,9 @@ def _get_all_job_statuses_call(cjobs):
             jobid = None
             if parts[0] == "JOBID":
                 continue
+            elif "not responding" in line:
+                # this means the daemon is down so any status info is bad
+                return {}
             elif "not found" in line:
                 jobid = parts[1].replace("<", "").replace(">", "")
                 jobstate = "NOT FOUND"
@@ -361,7 +365,8 @@ def _nanny_function(
                             n_submitted += 1
                         if n_submitted >= 100:
                             break
-                elif poll_delay > 0:
+
+                if poll_delay > 0:
                     time.sleep(poll_delay)
 
                 statuses = _get_all_job_statuses([
@@ -454,7 +459,7 @@ class SLACLSFExecutor():
                 _nanny_function,
                 self,
                 i,
-                max(1, self._num_nannies/10),
+                POLL_DELAY,
                 self.debug,
                 self.timelimit,
                 self.mem,
