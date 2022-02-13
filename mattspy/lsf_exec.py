@@ -15,9 +15,10 @@ LOGGER = logging.getLogger("lsf_exec")
 ACTIVE_THREAD_LOCK = threading.RLock()
 
 SCHED_DELAY = 120
+FS_DELAY = 10
 
 STATUS_DICT = {
-    None: "job state not known",
+    None: "unknown",
     "DONE": "completed",
     "EXIT": "failed+exited",
     "NOT FOUND": "not found",
@@ -273,6 +274,9 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
                 subid,
                 cjob,
             )
+
+        if not os.path.exists(outfile):
+            time.sleep(FS_DELAY)
 
         if os.path.exists(outfile):
             try:
