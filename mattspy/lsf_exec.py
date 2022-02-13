@@ -82,7 +82,6 @@ def _get_all_job_statuses_call(cjobs):
     if res.returncode == 0:
         status = {c: None for c in cjobs}
         for line in res.stdout.decode("utf-8").splitlines():
-            print(line)
             line = line.strip()
             parts = line.split()
             jobid = None
