@@ -155,6 +155,9 @@ class SLACLSFYield():
                 cjobs = set(
                     [tp[0] for tp in self._all_jobs.values() if tp[0] is not None]
                 )
+                if len(cjobs) == 0:
+                    return
+
                 statuses = self._get_all_job_statuses(cjobs)
 
                 for cjob, status_code in statuses.items():
