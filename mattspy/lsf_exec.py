@@ -14,7 +14,7 @@ LOGGER = logging.getLogger("lsf_exec")
 
 ACTIVE_THREAD_LOCK = threading.RLock()
 
-SCHED_DELAY = 60
+SCHED_DELAY = 120
 
 STATUS_DICT = {
     None: "job state not known",
