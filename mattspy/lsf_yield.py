@@ -165,6 +165,7 @@ class SLACLSFYield():
     def _attempt_result(self, cjob, status_code):
         didit = False
         subid = None
+        res = None
         for _subid in self._all_jobs:
             if self._all_jobs[_subid][0] == cjob:
                 subid = _subid
