@@ -88,7 +88,6 @@ def _get_all_job_statuses_call(cjobs):
             if parts[0] == "JOBID":
                 continue
             elif "not found" in line:
-                print(res.stdout)
                 jobid = parts[1].replace("<", "").replace(">", "")
                 jobstate = "NOT FOUND"
                 status[jobid] = jobstate
@@ -257,7 +256,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
             subid = _subid
             break
 
-    if subid is not None and status_code in [None, "DONE", "EXIT", "NOT FOUND"]:
+    if subid is not None and status_code in [None, "DONE", "EXIT"]:
         outfile = os.path.join(exec.execdir, subid, "output.pkl")
         infile = os.path.join(exec.execdir, subid, "input.pkl")
         jobfile = os.path.join(exec.execdir, subid, "run.sh")
@@ -284,7 +283,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
                 res = joblib.load(outfile)
             except Exception as e:
                 res = e
-        elif status_code in [None, "DONE", "EXIT", "NOT FOUND"]:
+        elif status_code in [None, "DONE", "EXIT"]:
             res = RuntimeError(
                 "LSF job %s: status '%s' w/ no output" % (
                     subid, STATUS_DICT[status_code]
