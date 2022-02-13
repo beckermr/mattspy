@@ -14,6 +14,8 @@ LOGGER = logging.getLogger("lsf_exec")
 
 ACTIVE_THREAD_LOCK = threading.RLock()
 
+SCHED_DELAY = 60
+
 STATUS_DICT = {
     None: "job state not known",
     "DONE": "completed",
@@ -73,7 +75,7 @@ def _kill_lsf_jobs():
 
 def _get_all_job_statuses_call(cjobs):
     res = subprocess.run(
-        "bjobs %s" % " ".join(cjobs),
+        "bjobs -a",
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -109,17 +111,7 @@ def _get_all_job_statuses_call(cjobs):
 
 
 def _get_all_job_statuses(cjobs):
-    status = {}
-    jobs_to_check = []
-    for cjob in cjobs:
-        jobs_to_check.append(cjob)
-        if len(jobs_to_check) == 100:
-            status.update(_get_all_job_statuses_call(jobs_to_check))
-            jobs_to_check = []
-
-    if jobs_to_check:
-        status.update(_get_all_job_statuses_call(jobs_to_check))
-
+    status = _get_all_job_statuses_call(cjobs)
     for cjob in list(status):
         if cjob not in cjobs:
             del status[cjob]
@@ -238,11 +230,11 @@ def _attempt_submit(exec, nanny_id, subid, timelimit, mem):
 
             if cjob is None:
                 LOGGER.error("could not submit LSF job for subid %s: %s", subid, e)
-                exec._nanny_subids[nanny_id][subid] = (None, None, None)
+                exec._nanny_subids[nanny_id][subid] = (None, None, None, None)
             else:
                 LOGGER.debug("submitted LSF job %s for subid %s", cjob, subid)
                 fut.cjob = cjob
-                exec._nanny_subids[nanny_id][subid] = (cjob, fut, None)
+                exec._nanny_subids[nanny_id][subid] = (cjob, fut, None, time.time())
                 submitted = True
 
     return submitted
@@ -256,7 +248,11 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
             subid = _subid
             break
 
-    if subid is not None and status_code in [None, "DONE", "EXIT"]:
+    if (
+        subid is not None
+        and status_code in [None, "NOT FOUND", "DONE", "EXIT"]
+        and time.time() - exec._nanny_subids[nanny_id][subid][3] > SCHED_DELAY
+    ):
         outfile = os.path.join(exec.execdir, subid, "output.pkl")
         infile = os.path.join(exec.execdir, subid, "input.pkl")
         jobfile = os.path.join(exec.execdir, subid, "run.sh")
@@ -283,7 +279,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
                 res = joblib.load(outfile)
             except Exception as e:
                 res = e
-        elif status_code in [None, "DONE", "EXIT"]:
+        elif status_code in [None, "DONE", "EXIT", "NOT FOUND"]:
             res = RuntimeError(
                 "LSF job %s: status '%s' w/ no output" % (
                     subid, STATUS_DICT[status_code]
@@ -311,7 +307,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
                     capture_output=True,
                 )
 
-        exec._nanny_subids[nanny_id][subid] = (None, None, None)
+        exec._nanny_subids[nanny_id][subid] = (None, None, None, None)
         with ACTIVE_THREAD_LOCK:
             exec._num_jobs -= 1
 
@@ -472,7 +468,7 @@ class SLACLSFExecutor():
         fut = Future()
         fut.execid = self.execid
         fut.subid = subid
-        self._nanny_subids[self._nanny_ind][subid] = (None, fut, job_data)
+        self._nanny_subids[self._nanny_ind][subid] = (None, fut, job_data, None)
         fut.set_running_or_notify_cancel()
 
         self._nanny_ind += 1
