@@ -14,6 +14,8 @@ LOGGER = logging.getLogger("condor_exec")
 
 ACTIVE_THREAD_LOCK = threading.RLock()
 
+FS_DELAY = 10
+
 ALL_CONDOR_JOBS = {}
 
 STATUS_DICT = {
@@ -255,6 +257,9 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
                 shell=True,
                 capture_output=True,
             )
+
+        if not os.path.exists(outfile):
+            time.sleep(FS_DELAY)
 
         if not os.path.exists(outfile):
             LOGGER.debug(

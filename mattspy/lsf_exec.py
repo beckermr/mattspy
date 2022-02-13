@@ -268,15 +268,15 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
             )
 
         if not os.path.exists(outfile):
+            time.sleep(FS_DELAY)
+
+        if not os.path.exists(outfile):
             LOGGER.debug(
                 "output %s does not exist for subid %s, LSF job %s",
                 outfile,
                 subid,
                 cjob,
             )
-
-        if not os.path.exists(outfile):
-            time.sleep(FS_DELAY)
 
         if os.path.exists(outfile):
             try:
