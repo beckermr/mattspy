@@ -88,6 +88,7 @@ def _get_all_job_statuses_call(cjobs):
             if parts[0] == "JOBID":
                 continue
             elif "not found" in line:
+                print(res.stdout)
                 jobid = parts[1].replace("<", "").replace(">", "")
                 jobstate = "NOT FOUND"
                 status[jobid] = jobstate
