@@ -284,7 +284,7 @@ class SLACLSFYield():
         LOGGER.debug("submitting LSF job for subid %s", subid)
         try:
             cjob = self._submit_lsf_job(subid, job_data)
-            e = "future cancelled"
+            e = "odd error"
         except Exception as _e:
             e = repr(_e)
             cjob = None
@@ -293,6 +293,7 @@ class SLACLSFYield():
             LOGGER.error("could not submit LSF job for subid %s: %s", subid, e)
         else:
             LOGGER.debug("submitted LSF job %s for subid %s", cjob, subid)
+            self._num_jobs += 1
 
         self._all_jobs[subid] = (cjob, time.time())
 
