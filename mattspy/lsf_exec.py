@@ -15,14 +15,16 @@ LOGGER = logging.getLogger("lsf_exec")
 ACTIVE_THREAD_LOCK = threading.RLock()
 
 STATUS_DICT = {
-    "DONE": "job completed",
-    "EXIT": "job failed and exited",
-    "NOT FOUND": "job was not found",
-    "PEND": "job is pending",
-    "PSUSP": "job was suspended by owner when pending",
-    "USUSP": "job was suspended by owner when pending",
-    "SSUSP": "job was suspended by systen",
-    "RUN": "job is running",
+    None: "job state not known",
+    "DONE": "completed",
+    "EXIT": "failed+exited",
+    "NOT FOUND": "not found",
+    "PEND": "pending",
+    "SUSP": "suspended",
+    "PSUSP": "suspended by owner when pending",
+    "USUSP": "suspended by owner when pending",
+    "SSUSP": "suspended by systen",
+    "RUN": "running",
 }
 
 ALL_LSF_JOBS = {}
@@ -70,7 +72,7 @@ def _kill_lsf_jobs():
 
 
 def _get_all_job_statuses_call(cjobs):
-    status = {}
+    status = {c: None for c in cjobs}
     res = subprocess.run(
         "bjobs %s" % " ".join(cjobs),
         shell=True,
@@ -251,7 +253,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
             subid = _subid
             break
 
-    if subid is not None and status_code in ["DONE", "EXIT", "NOT FOUND"]:
+    if subid is not None and status_code in [None, "DONE", "EXIT", "NOT FOUND"]:
         outfile = os.path.join(exec.execdir, subid, "output.pkl")
         infile = os.path.join(exec.execdir, subid, "input.pkl")
         jobfile = os.path.join(exec.execdir, subid, "run.sh")
@@ -278,7 +280,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
                 res = joblib.load(outfile)
             except Exception as e:
                 res = e
-        elif status_code in ["DONE", "EXIT", "NOT FOUND"]:
+        elif status_code in [None, "DONE", "EXIT", "NOT FOUND"]:
             res = RuntimeError(
                 "LSF job %s: status '%s' w/ no output" % (
                     subid, STATUS_DICT[status_code]

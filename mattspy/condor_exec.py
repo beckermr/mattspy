@@ -17,7 +17,7 @@ ACTIVE_THREAD_LOCK = threading.RLock()
 ALL_CONDOR_JOBS = {}
 
 STATUS_DICT = {
-    "": "unknown condor failure :(",
+    None: "unknown condor failure",
     "1": "Idle",
     "2": "Running",
     "3": "Removed",
@@ -71,7 +71,7 @@ def _kill_condor_jobs():
 
 
 def _get_all_job_statuses_call(cjobs):
-    status = {}
+    status = {c: None for c in cjobs}
     res = subprocess.run(
         "condor_q %s -af:jr JobStatus ExitBySignal" % " ".join(cjobs),
         shell=True,
@@ -85,7 +85,10 @@ def _get_all_job_statuses_call(cjobs):
                 if line[2].strip() == "true":
                     status[line[0]] = "9"
                 else:
-                    status[line[0]] = line[1]
+                    if len(line[1]) > 0:
+                        status[line[0]] = line[1]
+                    else:
+                        status[line[0]] = None
     return status
 
 
@@ -236,7 +239,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
         if exec._nanny_subids[nanny_id][_subid][0] == cjob:
             subid = _subid
             break
-    if subid is not None and status_code in ["4", "3", "5", "7", "9"]:
+    if subid is not None and status_code in [None, "4", "3", "5", "7", "9"]:
         outfile = os.path.join(exec.execdir, subid, "output.pkl")
         infile = os.path.join(exec.execdir, subid, "input.pkl")
         condorfile = os.path.join(exec.execdir, subid, "condor.sub")
@@ -263,7 +266,7 @@ def _attempt_result(exec, nanny_id, cjob, subids, status_code, debug):
                 res = joblib.load(outfile)
             except Exception as e:
                 res = e
-        elif status_code in ["3", "5", "7", "9"]:
+        elif status_code in [None, "3", "5", "7", "9"]:
             res = RuntimeError(
                 "Condor job %s: status '%s' w/ no output" % (
                     subid, STATUS_DICT[status_code]
