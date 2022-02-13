@@ -176,7 +176,7 @@ Queue
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )
-        if sub.returncode != 0:
+        if sub.returncode != 0 or sub.stdout is None:
             raise RuntimeError(
                 "Error running 'condor_submit %s' - return code %d - stdout '%s' - stderr '%s'" % (
                     condorfile,
@@ -194,7 +194,16 @@ Queue
                 cjob = line[5] + "0"
                 break
 
-        assert cjob is not None
+        if cjob is None:
+            raise RuntimeError(
+                "Error running 'condor_submit %s' - no job id - return code %d - stdout '%s' - stderr '%s'" % (
+                    condorfile,
+                    sub.returncode,
+                    sub.stdout.decode("utf-8"),
+                    sub.stderr.decode("utf-8"),
+                )
+            )
+
         ALL_CONDOR_JOBS[cjob] = None
 
     return cjob

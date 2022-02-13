@@ -177,7 +177,7 @@ def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit, mem):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )
-        if sub.returncode != 0:
+        if sub.returncode != 0 or sub.stdout is None:
             raise RuntimeError(
                 "Error running 'bsub < %s' - return code %d - stdout '%s' - stderr '%s'" % (
                     jobfile,
@@ -198,7 +198,16 @@ def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit, mem):
             except Exception:
                 continue
 
-        assert cjob is not None
+        if cjob is None:
+            raise RuntimeError(
+                "Error running 'bsub < %s' - no job id - return code %d - stdout '%s' - stderr '%s'" % (
+                    jobfile,
+                    sub.returncode,
+                    sub.stdout.decode("utf-8"),
+                    sub.stderr.decode("utf-8"),
+                )
+            )
+
         ALL_LSF_JOBS[cjob] = None
 
     return cjob
