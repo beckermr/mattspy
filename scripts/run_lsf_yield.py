@@ -14,7 +14,7 @@ def fun(n):
 def main():
     n_jobs = int(sys.argv[1])
 
-    with SLACLSFYield(debug=True, timelimit=10, max_workers=5) as exc:
+    with SLACLSFYield(debug=True, timelimit=10, max_workers=1000) as exc:
         tot = 0
         for res in PBar(
             exc([joblib.delayed(fun)(i) for i in range(n_jobs)]),
