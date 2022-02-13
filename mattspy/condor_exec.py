@@ -119,7 +119,7 @@ def _get_all_job_statuses(cjobs):
 def _submit_condor_job(exec, subid, nanny_id, fut, job_data, mem_req, extra_condor_submit_lines):
     cjob = None
 
-    if not fut.cancelled():
+    if fut.set_running_or_notify_cancel():
         infile = os.path.join(exec.execdir, subid, "input.pkl")
         condorfile = os.path.join(exec.execdir, subid, "condor.sub")
         outfile = os.path.join(exec.execdir, subid, "output.pkl")
@@ -472,8 +472,6 @@ class BNLCondorExecutor():
         fut.execid = self.execid
         fut.subid = subid
         self._nanny_subids[self._nanny_ind][subid] = (None, fut, job_data)
-        fut.set_running_or_notify_cancel()
-
         self._nanny_ind += 1
         self._nanny_ind = self._nanny_ind % self._num_nannies
 

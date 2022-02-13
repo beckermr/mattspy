@@ -129,7 +129,7 @@ def _fmt_time(timelimit):
 def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit, mem):
     cjob = None
 
-    if not fut.cancelled():
+    if fut.set_running_or_notify_cancel():
         infile = os.path.join(exec.execdir, subid, "input.pkl")
         jobfile = os.path.join(exec.execdir, subid, "run.sh")
         outfile = os.path.join(exec.execdir, subid, "output.pkl")
@@ -473,7 +473,6 @@ class SLACLSFExecutor():
         fut.execid = self.execid
         fut.subid = subid
         self._nanny_subids[self._nanny_ind][subid] = (None, fut, job_data, None)
-        fut.set_running_or_notify_cancel()
 
         self._nanny_ind += 1
         self._nanny_ind = self._nanny_ind % self._num_nannies
