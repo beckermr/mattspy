@@ -72,14 +72,15 @@ def _kill_lsf_jobs():
 
 
 def _get_all_job_statuses_call(cjobs):
-    status = {c: None for c in cjobs}
     res = subprocess.run(
         "bjobs %s" % " ".join(cjobs),
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
+
     if res.returncode == 0:
+        status = {c: None for c in cjobs}
         for line in res.stdout.decode("utf-8").splitlines():
             line = line.strip()
             parts = line.split()
@@ -101,6 +102,8 @@ def _get_all_job_statuses_call(cjobs):
                     assert jobstate in STATUS_DICT
                 except Exception:
                     LOGGER.error("job id and state not parsed: '%s'", line.strip())
+    else:
+        status = {}
 
     return status
 

@@ -71,7 +71,6 @@ def _kill_condor_jobs():
 
 
 def _get_all_job_statuses_call(cjobs):
-    status = {c: None for c in cjobs}
     res = subprocess.run(
         "condor_q %s -af:jr JobStatus ExitBySignal" % " ".join(cjobs),
         shell=True,
@@ -79,6 +78,7 @@ def _get_all_job_statuses_call(cjobs):
         stderr=subprocess.STDOUT,
     )
     if res.returncode == 0:
+        status = {c: None for c in cjobs}
         for line in res.stdout.decode("utf-8").splitlines():
             line = line.strip().split(" ")
             if line[0] in cjobs:
@@ -89,6 +89,9 @@ def _get_all_job_statuses_call(cjobs):
                         status[line[0]] = line[1]
                     else:
                         status[line[0]] = None
+    else:
+        status = {}
+
     return status
 
 
