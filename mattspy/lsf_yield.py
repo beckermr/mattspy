@@ -4,13 +4,10 @@ import subprocess
 import cloudpickle
 import joblib
 import atexit
-import threading
 import logging
 import time
 
 LOGGER = logging.getLogger("lsf_yield")
-
-ACTIVE_THREAD_LOCK = threading.RLock()
 
 SCHED_DELAY = 120
 FS_DELAY = 30
@@ -125,14 +122,12 @@ class SLACLSFYield():
                 flush=True,
             )
 
-        self._done = False
         self._all_jobs = {}
         self._jobid_to_subid = {}
         self._num_jobs = 0
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self._done = True
         if not self.debug:
             subprocess.run(
                 f"rm -rf {self.execdir}",
@@ -143,8 +138,9 @@ class SLACLSFYield():
     def __call__(self, jobs):
         jobs = iter(jobs)
         done = False
+        nsub = 0
         while True:
-            if self._num_jobs < self.max_workers and not done:
+            if self._num_jobs < self.max_workers and not done and nsub < 100:
                 try:
                     job = next(jobs)
                 except StopIteration:
@@ -152,11 +148,14 @@ class SLACLSFYield():
 
                 if not done:
                     self._attempt_submit(job)
+                    nsub += 1
             else:
+                nsub = 0
                 cjobs = set(
                     [tp[0] for tp in self._all_jobs.values() if tp[0] is not None]
                 )
-                if len(cjobs) == 0:
+
+                if len(cjobs) == 0 and done:
                     return
 
                 statuses = self._get_all_job_statuses(cjobs)
@@ -352,11 +351,10 @@ class SLACLSFYield():
         )
         if sub.returncode != 0 or sub.stdout is None:
             raise RuntimeError(
-                "Error running 'bsub < %s' - return code %d - stdout '%s' - stderr '%s'" % (
+                "Error running 'bsub < %s' - return code %d - stdout+stderr '%s'" % (
                     jobfile,
                     sub.returncode,
-                    sub.stdout.decode("utf-8"),
-                    sub.stderr.decode("utf-8"),
+                    sub.stdout.decode("utf-8") if sub.stdout is not None else "",
                 )
             )
 
@@ -374,11 +372,10 @@ class SLACLSFYield():
 
         if cjob is None:
             raise RuntimeError(
-                "Error running 'bsub < %s' - no job id - return code %d - stdout '%s' - stderr '%s'" % (
+                "Error running 'bsub < %s' - no job id - return code %d - stdout '%s'" % (
                     jobfile,
                     sub.returncode,
-                    sub.stdout.decode("utf-8"),
-                    sub.stderr.decode("utf-8"),
+                    sub.stdout.decode("utf-8") if sub.stdout is not None else "",
                 )
             )
 
