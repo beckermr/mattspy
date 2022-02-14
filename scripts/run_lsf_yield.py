@@ -7,7 +7,7 @@ import joblib
 
 
 def fun(n):
-    time.sleep(120)
+    time.sleep(20)
     return n
 
 
