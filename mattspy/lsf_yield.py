@@ -127,6 +127,7 @@ class SLACLSFYield():
 
         self._done = False
         self._all_jobs = {}
+        self._jobid_to_subid = {}
         self._num_jobs = 0
         return self
 
@@ -169,10 +170,7 @@ class SLACLSFYield():
         didit = False
         subid = None
         res = None
-        for _subid in self._all_jobs:
-            if self._all_jobs[_subid][0] == cjob:
-                subid = _subid
-                break
+        subid = self._jobid_to_subid.get(cjob, None)
 
         if (
             subid is not None
@@ -300,6 +298,7 @@ class SLACLSFYield():
             self._num_jobs += 1
 
         self._all_jobs[subid] = (cjob, time.time())
+        self._jobid_to_subid[cjob] = subid
 
     def _submit_lsf_job(self, subid, job_data):
         cjob = None
@@ -370,6 +369,7 @@ class SLACLSFYield():
                 int(cjob)
                 break
             except Exception:
+                cjob = None
                 continue
 
         if cjob is None:
