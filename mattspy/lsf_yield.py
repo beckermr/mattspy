@@ -76,32 +76,29 @@ def _fmt_time(timelimit):
     return "%02d:%02d" % (hrs, mins)
 
 
-class SLACLSFYield():
+class SLACLSFParallel():
     """A joblib-like interface for the SLAC LSF system that yeilds results.
 
     Parameters
     ----------
-    max_workers : int, optional
-        The maximum number of LSF jobs. Default is 10000.
-    debug : bool, optional
-        If True, the completed LSF job information is preserved. This can be
-        useful to diagnose failures.
+    n_jobs : int, optional
+        The maximum number of LSF jobs. Default of -1 is 3000.
     timelimit : int, optional
         Requested time limit in minutes.
     verbose : int, optional
-        This is ignored but is here for compatability. Use `debug=True`.
+        If verbose >= 50, all running data will be preserved. Otherwise it is deleted.
     mem : float, optional
         The required memory in GB. Default is 3.8.
     """
     def __init__(
-        self, max_workers=5000,
-        verbose=0, debug=False, timelimit=2820, mem=3.8,
+        self, n_jobs=-1,
+        verbose=0, timelimit=2820, mem=3.8,
     ):
-        self.max_workers = max_workers
+        self.n_jobs = n_jobs if n_jobs > 0 else 3000
         self.execid = uuid.uuid4().hex
         self.execdir = "lsf-yield/%s" % self.execid
         self.verbose = verbose
-        self.debug = debug
+        self.debug = True if self.verbose >= 50 else False
         self.timelimit = timelimit
         self.mem = mem
 
@@ -112,12 +109,16 @@ class SLACLSFYield():
 
     def __enter__(self):
         os.makedirs(self.execdir, exist_ok=True)
-        if self.debug:
+        if self.verbose > 0:
             print(
-                "starting LSF yield: "
-                "exec dir %s - max workers %s" % (
+                "starting SLACLSFParallel("
+                "n_jobs=%s, timelimit=%s, "
+                "verbose=%s, mem=%s) w/ exec dir='%s'" % (
+                    self.n_jobs,
+                    self.timelimit,
+                    self.verbose,
+                    self.mem,
                     self.execdir,
-                    self.max_workers,
                 ),
                 flush=True,
             )
@@ -140,7 +141,7 @@ class SLACLSFYield():
         done = False
         nsub = 0
         while True:
-            if self._num_jobs < self.max_workers and not done and nsub < 100:
+            if self._num_jobs < self.n_jobs and not done and nsub < 100:
                 try:
                     job = next(jobs)
                 except StopIteration:

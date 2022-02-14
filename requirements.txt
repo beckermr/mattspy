@@ -4,3 +4,4 @@ cloudpickle
 importlib_metadata
 setuptools_scm
 setuptools_scm_git_archive
+loky

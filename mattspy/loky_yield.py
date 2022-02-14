@@ -10,34 +10,40 @@ def _run_func(rd):
     return rd[0](*rd[1], **rd[2])
 
 
-class LokyYield():
+class LokyParallel():
     """A joblib-like interface for the SLAC LSF system that yeilds results.
 
     Parameters
     ----------
-    max_workers : int, optional
-        The maximum number of LSF jobs. Default is 10000.
-    debug : bool, optional
-        If True, the completed LSF job information is preserved. This can be
-        useful to diagnose failures.
-    timelimit : int, optional
-        Requested time limit in minutes.
+    n_jobs : int, optional
+        The maximum number of LSF jobs. Default is cpu count on machine.
+    env : dict, optional
+        Optional environment variables to set in the loky backend.
     verbose : int, optional
-        This is ignored but is here for compatability. Use `debug=True`.
-    mem : float, optional
-        The required memory in GB. Default is 3.8.
+        If greater than zero, print debugging information.
     """
     def __init__(
-        self, max_workers=None, env=None,
+        self, n_jobs=-1, env=None, verbose=None,
     ):
-        self.max_workers = max_workers or multiprocessing.cpu_count()
+        self.n_jobs = n_jobs if n_jobs > 0 else multiprocessing.cpu_count()
         self.env = env or {}
         self._exec = loky.get_reusable_executor(
-            max_workers=self.max_workers,
+            max_workers=self.n_jobs,
             env=self.env,
         )
+        self.verbose = verbose
 
     def __enter__(self):
+        if self.verbose > 0:
+            print(
+                "starting LokyParallel(n_jobs=%s, env=%s, verbose=%s)" % (
+                    self.n_jobs,
+                    self.env,
+                    self.verbose,
+                ),
+                flush=True,
+            )
+
         self._futs = []
         self._num_jobs = 0
         return self
@@ -48,8 +54,9 @@ class LokyYield():
     def __call__(self, jobs):
         jobs = iter(jobs)
         done = False
+        nsub = 0
         while True:
-            if self._num_jobs < self.max_workers and not done:
+            if self._num_jobs < self.n_jobs*2 and not done and nsub < 100:
                 try:
                     job = next(jobs)
                 except StopIteration:
@@ -58,21 +65,25 @@ class LokyYield():
                 if not done:
                     self._futs.append(self._exec.submit(_run_func, job))
                     self._num_jobs += 1
+                    nsub += 1
             else:
-                if len(self._futs) == 0:
+                nsub = 0
+
+                if len(self._futs) == 0 and done:
                     break
 
                 tp = concurrent.futures.wait(
                     self._futs,
                     return_when=concurrent.futures.FIRST_COMPLETED,
                 )
-                fut = tp[0].pop()
-                fut = self._futs.pop(self._futs.index(fut))
-                self._num_jobs -= 1
+                if len(tp[0]) > 0:
+                    fut = tp[0].pop()
+                    fut = self._futs.pop(self._futs.index(fut))
+                    self._num_jobs -= 1
 
-                try:
-                    res = fut.result()
-                except Exception as e:
-                    res = e
+                    try:
+                        res = fut.result()
+                    except Exception as e:
+                        res = e
 
-                yield res
+                    yield res
