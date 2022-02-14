@@ -178,11 +178,10 @@ Queue
         )
         if sub.returncode != 0 or sub.stdout is None:
             raise RuntimeError(
-                "Error running 'condor_submit %s' - return code %d - stdout '%s' - stderr '%s'" % (
+                "Error running 'condor_submit %s' - return code %d - stdout+stderr '%s' " % (
                     condorfile,
                     sub.returncode,
-                    sub.stdout.decode("utf-8"),
-                    sub.stderr.decode("utf-8"),
+                    sub.stdout.decode("utf-8") if sub.stdout is not None else "",
                 )
             )
 
@@ -196,11 +195,10 @@ Queue
 
         if cjob is None:
             raise RuntimeError(
-                "Error running 'condor_submit %s' - no job id - return code %d - stdout '%s' - stderr '%s'" % (
+                "Error running 'condor_submit %s' - no job id - return code %d - stdout+stderr '%s'" % (
                     condorfile,
                     sub.returncode,
-                    sub.stdout.decode("utf-8"),
-                    sub.stderr.decode("utf-8"),
+                    sub.stdout.decode("utf-8") if sub.stdout is not None else "",
                 )
             )
 

@@ -183,11 +183,10 @@ def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit, mem):
         )
         if sub.returncode != 0 or sub.stdout is None:
             raise RuntimeError(
-                "Error running 'bsub < %s' - return code %d - stdout '%s' - stderr '%s'" % (
+                "Error running 'bsub < %s' - return code %d - stdout+stderr '%s'" % (
                     jobfile,
                     sub.returncode,
-                    sub.stdout.decode("utf-8"),
-                    sub.stderr.decode("utf-8"),
+                    sub.stdout.decode("utf-8") if sub.stdout is not None else "",
                 )
             )
 
@@ -204,11 +203,10 @@ def _submit_lsf_job(exec, subid, nanny_id, fut, job_data, timelimit, mem):
 
         if cjob is None:
             raise RuntimeError(
-                "Error running 'bsub < %s' - no job id - return code %d - stdout '%s' - stderr '%s'" % (
+                "Error running 'bsub < %s' - no job id - return code %d - stdout+stderr '%s'" % (
                     jobfile,
                     sub.returncode,
-                    sub.stdout.decode("utf-8"),
-                    sub.stderr.decode("utf-8"),
+                    sub.stdout.decode("utf-8") if sub.stdout is not None else "",
                 )
             )
 
