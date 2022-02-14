@@ -6,6 +6,7 @@ import joblib
 import atexit
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 LOGGER = logging.getLogger("lsf_yield")
 
@@ -76,6 +77,116 @@ def _fmt_time(timelimit):
     return "%02d:%02d" % (hrs, mins)
 
 
+def _submit_lsf_job(*, subid, job_data, mem, execid, timelimit, execdir):
+    cjob = None
+
+    infile = os.path.join(execdir, subid, "input.pkl")
+    jobfile = os.path.join(execdir, subid, "run.sh")
+    outfile = os.path.join(execdir, subid, "output.pkl")
+    logfile = os.path.join(execdir, subid, "log.oe")
+
+    os.makedirs(os.path.join(execdir, subid), exist_ok=True)
+
+    ##############################
+    # dump the file
+    with open(infile, "wb") as fp:
+        cloudpickle.dump(job_data, fp)
+
+    # compute mem requirement
+    if mem > 4:
+        mem_str = ' && span[hosts=1]'
+        n = 2
+    else:
+        n = 1
+        mem_str = ""
+
+    ##############################
+    # submit the LSF job
+    with open(jobfile, "w") as fp:
+        fp.write(
+            JOB_TEMPLATE.format(
+                input=infile,
+                output=outfile,
+                logfile=logfile,
+                timelimit=_fmt_time(timelimit),
+                jobname="job-%s-%s" % (execid, subid),
+                mem_str=mem_str,
+                n=n,
+            )
+        )
+    subprocess.run(
+        "chmod u+x %s" % jobfile,
+        shell=True,
+        check=True,
+        capture_output=True,
+    )
+
+    sub = subprocess.run(
+        "bsub < %s" % jobfile,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    if sub.returncode != 0 or sub.stdout is None:
+        raise RuntimeError(
+            "Error running 'bsub < %s' - return code %d - stdout+stderr '%s'" % (
+                jobfile,
+                sub.returncode,
+                sub.stdout.decode("utf-8") if sub.stdout is not None else "",
+            )
+        )
+
+    cjob = None
+    for line in sub.stdout.decode("utf-8").splitlines():
+        line = line.strip()
+        line = line.split(" ")
+        cjob = line[1].replace("<", "").replace(">", "")
+        try:
+            int(cjob)
+            break
+        except Exception:
+            cjob = None
+            continue
+
+    if cjob is None:
+        raise RuntimeError(
+            "Error running 'bsub < %s' - no job id - return code %d - stdout '%s'" % (
+                jobfile,
+                sub.returncode,
+                sub.stdout.decode("utf-8") if sub.stdout is not None else "",
+            )
+        )
+
+    ALL_LSF_JOBS[cjob] = None
+
+    return cjob
+
+
+def _attempt_submit(*, job_data, mem, execid, timelimit, execdir):
+    subid = uuid.uuid4().hex
+    LOGGER.debug("submitting LSF job for subid %s", subid)
+    try:
+        cjob = _submit_lsf_job(
+            subid=subid,
+            job_data=job_data,
+            mem=mem,
+            execid=execid,
+            timelimit=timelimit,
+            execdir=execdir,
+        )
+        e = "odd error"
+    except Exception as _e:
+        e = repr(_e)
+        cjob = None
+
+    if cjob is None:
+        LOGGER.error("could not submit LSF job for subid %s: %s", subid, e)
+    else:
+        LOGGER.debug("submitted LSF job %s for subid %s", cjob, subid)
+
+    return cjob, subid
+
+
 class SLACLSFParallel():
     """A joblib-like interface for the SLAC LSF system that yeilds results.
 
@@ -139,32 +250,53 @@ class SLACLSFParallel():
     def __call__(self, jobs):
         jobs = iter(jobs)
         done = False
-        nsub = 0
         while True:
-            if self._num_jobs < self.n_jobs and not done and nsub < 100:
-                try:
-                    job = next(jobs)
-                except StopIteration:
-                    done = True
-
-                if not done:
-                    self._attempt_submit(job)
-                    nsub += 1
-            else:
+            # submit
+            with ThreadPoolExecutor(max_workers=10) as exc:
+                futs = []
                 nsub = 0
-                cjobs = set(
-                    [tp[0] for tp in self._all_jobs.values() if tp[0] is not None]
-                )
+                while self._num_jobs < self.n_jobs and not done and nsub < 100:
+                    try:
+                        job = next(jobs)
+                    except StopIteration:
+                        done = True
 
-                if len(cjobs) == 0 and done:
-                    return
+                    if not done:
+                        futs.append(exc.submit(
+                            _attempt_submit,
+                            job_data=job,
+                            mem=self.mem,
+                            execid=self.execid,
+                            timelimit=self.timelimit,
+                            execdir=self.execdir,
 
-                statuses = self._get_all_job_statuses(cjobs)
+                        ))
+                        nsub += 1
+                for fut in as_completed(futs):
+                    try:
+                        cjob, subid = fut.result()
+                    except Exception:
+                        pass
 
-                for cjob, status_code in statuses.items():
-                    didit, res = self._attempt_result(cjob, status_code)
-                    if didit:
-                        yield res
+                    if cjob is not None:
+                        self._num_jobs += 1
+                        self._all_jobs[subid] = (cjob, time.time())
+                        self._jobid_to_subid[cjob] = subid
+
+            # collect any results
+            cjobs = set(
+                [tp[0] for tp in self._all_jobs.values() if tp[0] is not None]
+            )
+
+            if len(cjobs) == 0 and done:
+                return
+
+            statuses = self._get_all_job_statuses(cjobs)
+
+            for cjob, status_code in statuses.items():
+                didit, res = self._attempt_result(cjob, status_code)
+                if didit:
+                    yield res
 
     def _attempt_result(self, cjob, status_code):
         didit = False
@@ -280,106 +412,3 @@ class SLACLSFParallel():
                         LOGGER.error("job id and state not parsed: '%s'", line.strip())
 
         return status
-
-    def _attempt_submit(self, job_data):
-        subid = uuid.uuid4().hex
-        LOGGER.debug("submitting LSF job for subid %s", subid)
-        try:
-            cjob = self._submit_lsf_job(subid, job_data)
-            e = "odd error"
-        except Exception as _e:
-            e = repr(_e)
-            cjob = None
-
-        if cjob is None:
-            LOGGER.error("could not submit LSF job for subid %s: %s", subid, e)
-        else:
-            LOGGER.debug("submitted LSF job %s for subid %s", cjob, subid)
-            self._num_jobs += 1
-
-        self._all_jobs[subid] = (cjob, time.time())
-        self._jobid_to_subid[cjob] = subid
-
-    def _submit_lsf_job(self, subid, job_data):
-        cjob = None
-
-        infile = os.path.join(self.execdir, subid, "input.pkl")
-        jobfile = os.path.join(self.execdir, subid, "run.sh")
-        outfile = os.path.join(self.execdir, subid, "output.pkl")
-        logfile = os.path.join(self.execdir, subid, "log.oe")
-
-        os.makedirs(os.path.join(self.execdir, subid), exist_ok=True)
-
-        ##############################
-        # dump the file
-        with open(infile, "wb") as fp:
-            cloudpickle.dump(job_data, fp)
-
-        # compute mem requirement
-        if self.mem > 4:
-            mem_str = ' && span[hosts=1]'
-            n = 2
-        else:
-            n = 1
-            mem_str = ""
-
-        ##############################
-        # submit the LSF job
-        with open(jobfile, "w") as fp:
-            fp.write(
-                JOB_TEMPLATE.format(
-                    input=infile,
-                    output=outfile,
-                    logfile=logfile,
-                    timelimit=_fmt_time(self.timelimit),
-                    jobname="job-%s-%s" % (self.execid, subid),
-                    mem_str=mem_str,
-                    n=n,
-                )
-            )
-        subprocess.run(
-            "chmod u+x %s" % jobfile,
-            shell=True,
-            check=True,
-            capture_output=True,
-        )
-
-        sub = subprocess.run(
-            "bsub < %s" % jobfile,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
-        if sub.returncode != 0 or sub.stdout is None:
-            raise RuntimeError(
-                "Error running 'bsub < %s' - return code %d - stdout+stderr '%s'" % (
-                    jobfile,
-                    sub.returncode,
-                    sub.stdout.decode("utf-8") if sub.stdout is not None else "",
-                )
-            )
-
-        cjob = None
-        for line in sub.stdout.decode("utf-8").splitlines():
-            line = line.strip()
-            line = line.split(" ")
-            cjob = line[1].replace("<", "").replace(">", "")
-            try:
-                int(cjob)
-                break
-            except Exception:
-                cjob = None
-                continue
-
-        if cjob is None:
-            raise RuntimeError(
-                "Error running 'bsub < %s' - no job id - return code %d - stdout '%s'" % (
-                    jobfile,
-                    sub.returncode,
-                    sub.stdout.decode("utf-8") if sub.stdout is not None else "",
-                )
-            )
-
-        ALL_LSF_JOBS[cjob] = None
-
-        return cjob
