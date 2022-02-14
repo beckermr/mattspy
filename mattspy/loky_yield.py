@@ -1,6 +1,7 @@
 import multiprocessing
 import loky
 import logging
+import concurrent.futures
 
 LOGGER = logging.getLogger("loky_yield")
 
@@ -61,15 +62,14 @@ class LokyYield():
                 if len(self._futs) == 0:
                     break
 
-                ind = None
-                while ind is None:
-                    for i in range(len(self._futs)):
-                        if self._futs[i].done():
-                            ind = i
-                            break
-
-                fut = self._futs.pop(ind)
+                tp = concurrent.futures.wait(
+                    self._futs,
+                    return_when=concurrent.futures.FIRST_COMPLETED,
+                )
+                fut = tp[0].pop()
+                fut = self._futs.pop(self._futs.index(fut))
                 self._num_jobs -= 1
+
                 try:
                     res = fut.result()
                 except Exception as e:
