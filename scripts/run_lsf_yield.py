@@ -14,7 +14,7 @@ def fun(n):
 def main():
     n_jobs = int(sys.argv[1])
 
-    with SLACLSFParallel(verbose=100, timelimit=10, n_jobs=1000) as exc:
+    with SLACLSFParallel(verbose=100, timelimit=10, n_jobs=200) as exc:
         tot = 0
         for res in PBar(
             exc([joblib.delayed(fun)(i) for i in range(n_jobs)]),
