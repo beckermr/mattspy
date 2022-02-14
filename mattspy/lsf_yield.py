@@ -252,6 +252,7 @@ class SLACLSFParallel():
         done = False
         while True:
             # submit
+            LOGGER.error("submitting jobs")
             with ThreadPoolExecutor(max_workers=10) as exc:
                 futs = []
                 nsub = 0
@@ -284,6 +285,7 @@ class SLACLSFParallel():
                         self._jobid_to_subid[cjob] = subid
 
             # collect any results
+            LOGGER.error("collecting results")
             cjobs = set(
                 [tp[0] for tp in self._all_jobs.values() if tp[0] is not None]
             )
