@@ -254,8 +254,7 @@ class SLACLSFParallel():
             # submit
             with ThreadPoolExecutor(max_workers=10) as exc:
                 futs = []
-                nsub = 0
-                while self._num_jobs < self.n_jobs and not done and nsub < 100:
+                while self._num_jobs < self.n_jobs and not done:
                     try:
                         job = next(jobs)
                     except StopIteration:
@@ -271,7 +270,8 @@ class SLACLSFParallel():
                             execdir=self.execdir,
 
                         ))
-                        nsub += 1
+                        self._num_jobs += 1
+
                 for fut in as_completed(futs):
                     try:
                         cjob, subid = fut.result()
@@ -279,9 +279,13 @@ class SLACLSFParallel():
                         pass
 
                     if cjob is not None:
-                        self._num_jobs += 1
                         self._all_jobs[subid] = (cjob, time.time())
                         self._jobid_to_subid[cjob] = subid
+                    else:
+                        self._num_jobs -= 1
+
+                del fut
+                del futs
 
             # collect any results
             cjobs = set(
