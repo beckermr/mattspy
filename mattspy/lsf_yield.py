@@ -284,7 +284,6 @@ class SLACLSFParallel():
                     else:
                         self._num_jobs -= 1
 
-                del fut
                 del futs
 
             # collect any results
