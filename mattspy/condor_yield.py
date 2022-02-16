@@ -253,7 +253,7 @@ class BNLCondorParallel():
     ):
         self.n_jobs = n_jobs
         self.execid = uuid.uuid4().hex
-        self.execdir = "condor-exec/%s" % self.execid
+        self.execdir = "condor-yield/%s" % self.execid
         self.verbose = verbose
         self.debug = self.verbose >= 50
         self.mem = mem
