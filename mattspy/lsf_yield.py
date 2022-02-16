@@ -8,6 +8,8 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from .yield_result import ParallelResult, ParallelSubmissionError
+
 LOGGER = logging.getLogger("lsf_yield")
 
 SCHED_DELAY = 120
@@ -78,8 +80,6 @@ def _fmt_time(timelimit):
 
 
 def _submit_lsf_job(*, subid, job_data, mem, execid, timelimit, execdir):
-    cjob = None
-
     infile = os.path.join(execdir, subid, "input.pkl")
     jobfile = os.path.join(execdir, subid, "run.sh")
     outfile = os.path.join(execdir, subid, "output.pkl")
@@ -128,7 +128,7 @@ def _submit_lsf_job(*, subid, job_data, mem, execid, timelimit, execdir):
         stderr=subprocess.STDOUT,
     )
     if sub.returncode != 0 or sub.stdout is None:
-        raise RuntimeError(
+        raise ParallelSubmissionError(
             "Error running 'bsub < %s' - return code %d - stdout+stderr '%s'" % (
                 jobfile,
                 sub.returncode,
@@ -149,17 +149,16 @@ def _submit_lsf_job(*, subid, job_data, mem, execid, timelimit, execdir):
             continue
 
     if cjob is None:
-        raise RuntimeError(
+        raise ParallelSubmissionError(
             "Error running 'bsub < %s' - no job id - return code %d - stdout '%s'" % (
                 jobfile,
                 sub.returncode,
                 sub.stdout.decode("utf-8") if sub.stdout is not None else "",
             )
         )
-
-    ALL_LSF_JOBS[cjob] = None
-
-    return cjob
+    else:
+        ALL_LSF_JOBS[cjob] = None
+        return cjob
 
 
 def _attempt_submit(*, job_data, mem, execid, timelimit, execdir):
@@ -174,15 +173,13 @@ def _attempt_submit(*, job_data, mem, execid, timelimit, execdir):
             timelimit=timelimit,
             execdir=execdir,
         )
-        e = "odd error"
-    except Exception as _e:
-        e = repr(_e)
-        cjob = None
-
-    if cjob is None:
+    except Exception as e:
+        if not isinstance(e, ParallelSubmissionError):
+            e = ParallelSubmissionError(repr(e))
         LOGGER.error("could not submit LSF job for subid %s: %s", subid, e)
-    else:
-        LOGGER.debug("submitted LSF job %s for subid %s", cjob, subid)
+        raise e
+
+    LOGGER.debug("submitted LSF job %s for subid %s", cjob, subid)
 
     return cjob, subid
 
@@ -250,6 +247,8 @@ class SLACLSFParallel():
     def __call__(self, jobs):
         jobs = iter(jobs)
         done = False
+        index = 0
+        suberrs = []
         while True:
             # submit
             with ThreadPoolExecutor(max_workers=10) as exc:
@@ -277,16 +276,25 @@ class SLACLSFParallel():
                 for fut in as_completed(futs):
                     try:
                         cjob, subid = fut.result()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        cjob = None
+                        err = e
 
                     if cjob is not None:
-                        self._all_jobs[subid] = (cjob, time.time())
+                        self._all_jobs[subid] = (cjob, time.time(), index)
                         self._jobid_to_subid[cjob] = subid
                     else:
+                        suberrs.append((index, err))
                         self._num_jobs -= 1
 
+                    index += 1
+
                 del futs
+
+            # raise any errors
+            for index, err in suberrs:
+                yield ParallelResult(err, index)
+            suberrs = []
 
             # collect any results
             cjobs = set(
@@ -299,14 +307,15 @@ class SLACLSFParallel():
             statuses = self._get_all_job_statuses(cjobs)
 
             for cjob, status_code in statuses.items():
-                didit, res = self._attempt_result(cjob, status_code)
+                didit, res, index = self._attempt_result(cjob, status_code)
                 if didit:
-                    yield res
+                    yield ParallelResult(res, index)
 
     def _attempt_result(self, cjob, status_code):
         didit = False
         res = None
         subid = self._jobid_to_subid.get(cjob, None)
+        index = None
 
         if (
             subid is not None
@@ -367,12 +376,17 @@ class SLACLSFParallel():
                         capture_output=True,
                     )
 
-            self._all_jobs[subid] = (None, None)
+            index = self._all_jobs[subid][2]
+            self._all_jobs[subid] = (
+                None,
+                time.time() - self._all_jobs[subid][1],
+                self._all_jobs[subid][2],
+            )
             self._num_jobs -= 1
 
             didit = True
 
-        return didit, res
+        return didit, res, index
 
     def _get_all_job_statuses(self, cjobs):
         res = subprocess.run(

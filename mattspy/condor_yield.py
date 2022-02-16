@@ -10,7 +10,7 @@ import time
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .yield_result import ParallelResult
+from .yield_result import ParallelResult, ParallelSubmissionError
 
 LOGGER = logging.getLogger("condor_yield")
 
@@ -121,8 +121,6 @@ def _get_all_job_statuses(cjobs):
 def _submit_condor_job(
     *, execdir, execid, subid, job_data, mem, extra_condor_submit_lines,
 ):
-    cjob = None
-
     infile = os.path.join(execdir, subid, "input.pkl")
     condorfile = os.path.join(execdir, subid, "condor.sub")
     outfile = os.path.join(execdir, subid, "output.pkl")
@@ -180,7 +178,7 @@ Queue
         stderr=subprocess.STDOUT,
     )
     if sub.returncode != 0 or sub.stdout is None:
-        raise RuntimeError(
+        raise ParallelSubmissionError(
             "Error running 'condor_submit %s' - return code %d - stdout+stderr '%s' " % (
                 condorfile,
                 sub.returncode,
@@ -197,17 +195,17 @@ Queue
             break
 
     if cjob is None:
-        raise RuntimeError(
+        raise ParallelSubmissionError(
             "Error running 'condor_submit %s' - no job id - return code %d - stdout+stderr '%s'" % (
                 condorfile,
                 sub.returncode,
                 sub.stdout.decode("utf-8") if sub.stdout is not None else "",
             )
         )
+    else:
+        ALL_CONDOR_JOBS[cjob] = None
 
-    ALL_CONDOR_JOBS[cjob] = None
-
-    return cjob
+        return cjob
 
 
 def _attempt_submit(*, job_data, execid, execdir, mem, extra_condor_submit_lines):
@@ -223,15 +221,13 @@ def _attempt_submit(*, job_data, execid, execdir, mem, extra_condor_submit_lines
             mem=mem,
             extra_condor_submit_lines=extra_condor_submit_lines,
         )
-        e = "odd error"
-    except Exception as _e:
-        e = repr(_e)
-        cjob = None
+    except Exception as e:
+        if not isinstance(e, ParallelSubmissionError):
+            e = ParallelSubmissionError(repr(e))
+        LOGGER.error("could not submit condor job for subid %s: %s", subid, repr(e))
+        raise e
 
-    if cjob is None:
-        LOGGER.error("could not submit condor job for subid %s: %s", subid, e)
-    else:
-        LOGGER.debug("submitted condor job %s for subid %s", cjob, subid)
+    LOGGER.debug("submitted condor job %s for subid %s", cjob, subid)
 
     return cjob, subid
 
@@ -279,15 +275,6 @@ class BNLCondorParallel():
                 flush=True,
             )
 
-        with open(os.path.join(self.execdir, "run.sh"), "w") as fp:
-            fp.write(WORKER_INIT)
-        subprocess.run(
-            "chmod u+x " + os.path.join(self.execdir, "run.sh"),
-            shell=True,
-            check=True,
-            capture_output=True,
-        )
-
         self._all_jobs = {}
         self._jobid_to_subid = {}
         self._num_jobs = 0
@@ -302,8 +289,22 @@ class BNLCondorParallel():
             )
 
     def __call__(self, jobs):
+        with open(os.path.join(self.execdir, "run.sh"), "w") as fp:
+            fp.write(WORKER_INIT)
+        sub = subprocess.run(
+            "chmod u+x " + os.path.join(self.execdir, "run.sh"),
+            shell=True,
+            capture_output=True,
+        )
+        if sub.returncode != 0:
+            raise ParallelSubmissionError(
+                "Could not make writable run script at '%s'!" % os.path.join(self.execdir, "run.sh")
+            )
+
+        index = 0
         jobs = iter(jobs)
         done = False
+        suberrs = []
         while True:
             # submit
             with ThreadPoolExecutor(max_workers=10) as exc:
@@ -330,16 +331,25 @@ class BNLCondorParallel():
                 for fut in as_completed(futs):
                     try:
                         cjob, subid = fut.result()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        cjob = None
+                        err = e
 
                     if cjob is not None:
-                        self._all_jobs[subid] = (cjob, time.time())
+                        self._all_jobs[subid] = (cjob, time.time(), index)
                         self._jobid_to_subid[cjob] = subid
                     else:
+                        suberrs.append((index, err))
                         self._num_jobs -= 1
 
+                    index += 1
+
                 del futs
+
+            # raise any errors
+            for index, err in suberrs:
+                yield ParallelResult(err, index)
+            suberrs = []
 
             # collect any results
             cjobs = set(
@@ -352,14 +362,15 @@ class BNLCondorParallel():
             statuses = _get_all_job_statuses(cjobs)
 
             for cjob, status_code in statuses.items():
-                didit, res = self._attempt_result(cjob, status_code)
+                didit, res, index = self._attempt_result(cjob, status_code)
                 if didit:
-                    yield res
+                    yield ParallelResult(res, index)
 
     def _attempt_result(self, cjob, status_code):
         didit = False
         subid = self._jobid_to_subid.get(cjob, None)
-        pr = None
+        res = None
+        index = None
 
         if subid is not None and status_code in [None, "4", "3", "5", "7", "9"]:
             outfile = os.path.join(self.execdir, subid, "output.pkl")
@@ -386,7 +397,6 @@ class BNLCondorParallel():
                     cjob,
                 )
 
-            pr = ParallelResult()
             if os.path.exists(outfile):
                 try:
                     res = joblib.load(outfile)
@@ -403,7 +413,6 @@ class BNLCondorParallel():
                     "Condor job %s: no status or job output found!" % subid)
 
             if isinstance(res, Exception):
-                pr.set_exception(res)
                 if not self.debug:
                     subprocess.run(
                         "rm -f %s %s %s" % (infile, outfile, condorfile),
@@ -411,7 +420,6 @@ class BNLCondorParallel():
                         capture_output=True,
                     )
             else:
-                pr.set_result(res)
                 if not self.debug:
                     subprocess.run(
                         "rm -f %s %s %s %s" % (infile, outfile, condorfile, logfile),
@@ -419,9 +427,14 @@ class BNLCondorParallel():
                         capture_output=True,
                     )
 
-            self._all_jobs[subid] = (None, None)
+            index = self._all_jobs[subid][2]
+            self._all_jobs[subid] = (
+                None,
+                time.time() - self._all_jobs[subid][1],
+                self._all_jobs[subid][2],
+            )
             self._num_jobs -= 1
 
             didit = True
 
-        return didit, pr
+        return didit, res, index

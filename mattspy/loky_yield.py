@@ -3,6 +3,8 @@ import loky
 import logging
 import concurrent.futures
 
+from .yield_result import ParallelResult
+
 LOGGER = logging.getLogger("loky_yield")
 
 
@@ -11,7 +13,7 @@ def _run_func(rd):
 
 
 class LokyParallel():
-    """A joblib-like interface for the SLAC LSF system that yeilds results.
+    """A joblib-like interface for the loky parallel backend.
 
     Parameters
     ----------
@@ -55,6 +57,7 @@ class LokyParallel():
         jobs = iter(jobs)
         done = False
         nsub = 0
+        index = 0
         while True:
             if self._num_jobs < self.n_jobs*2 and not done and nsub < 100:
                 try:
@@ -63,9 +66,12 @@ class LokyParallel():
                     done = True
 
                 if not done:
-                    self._futs.append(self._exec.submit(_run_func, job))
+                    fut = self._exec.submit(_run_func, job)
+                    fut.index = index
+                    self._futs.append(fut)
                     self._num_jobs += 1
                     nsub += 1
+                    index += 1
             else:
                 nsub = 0
 
@@ -86,4 +92,4 @@ class LokyParallel():
                     except Exception as e:
                         res = e
 
-                    yield res
+                    yield ParallelResult(res, fut.index)
