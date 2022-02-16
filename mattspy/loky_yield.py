@@ -25,7 +25,7 @@ class LokyParallel():
         If greater than zero, print debugging information.
     """
     def __init__(
-        self, n_jobs=-1, env=None, verbose=None,
+        self, n_jobs=-1, env=None, verbose=0,
     ):
         self.n_jobs = n_jobs if n_jobs > 0 else multiprocessing.cpu_count()
         self.env = env or {}
