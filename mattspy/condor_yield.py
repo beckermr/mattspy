@@ -4,38 +4,34 @@ import subprocess
 import cloudpickle
 import joblib
 import atexit
+import threading
 import logging
 import time
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-LOGGER = logging.getLogger("lsf_yield")
+LOGGER = logging.getLogger("condor_yield")
 
-SCHED_DELAY = 120
-FS_DELAY = 30
-POLL_DELAY = 10
+ACTIVE_THREAD_LOCK = threading.RLock()
+
+FS_DELAY = 10
+
+ALL_CONDOR_JOBS = {}
 
 STATUS_DICT = {
-    None: "unknown",
-    "DONE": "completed",
-    "EXIT": "failed+exited",
-    "NOT FOUND": "not found",
-    "PEND": "pending",
-    "SUSP": "suspended",
-    "PSUSP": "suspended by owner when pending",
-    "USUSP": "suspended by owner when pending",
-    "SSUSP": "suspended by systen",
-    "RUN": "running",
+    None: "unknown condor failure",
+    "1": "Idle",
+    "2": "Running",
+    "3": "Removed",
+    "4": "Completed",
+    "5": "Held",
+    "6": "Transferring Output",
+    "7": "Suspended",
+    "9": "Killed",
 }
 
-ALL_LSF_JOBS = {}
-
-JOB_TEMPLATE = """\
+WORKER_INIT = """\
 #!/bin/bash
-#BSUB -J "{jobname}"
-#BSUB -n {n}
-#BSUB -oo ./{logfile}
-#BSUB -W {timelimit}
-#BSUB -R "linux64 && rhel60 && scratch > 2{mem_str}"
 
 export OMP_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
@@ -43,45 +39,90 @@ export MKL_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 
-mkdir -p /scratch/$LSB_JOBID
-export TMPDIR=/scratch/$LSB_JOBID
+# the condor system creates a scratch directory for us,
+# and cleans up afterward
+tmpdir=$_CONDOR_SCRATCH_DIR/tmp_me
+mkdir -p $tmpdir
+export TMPDIR=$tmpdir
 
-mkdir -p $(dirname {output})
-mkdir -p $(dirname {logfile})
+mkdir -p $(dirname $2)
+mkdir -p $(dirname $3)
+touch $3
 
-mattspy-exec-run-pickled-task {input} {output} {logfile}
-
-rm -rf /scratch/$LSB_JOBID
+mattspy-exec-run-pickled-task $1 $2 $3 &> $3
 """
 
 
-def _kill_lsf_jobs():
+def _kill_condor_jobs():
     chunksize = 100
     cjobs = []
-    for cjob in list(ALL_LSF_JOBS):
+    for cjob in list(ALL_CONDOR_JOBS):
         cjobs.append(cjob)
         if len(cjobs) == chunksize:
             _cjobs = " ".join(cjobs)
-            subprocess.run("bkill -s 9 " + _cjobs, shell=True, capture_output=True)
+            subprocess.run("condor_rm " + _cjobs, shell=True, capture_output=True)
+            subprocess.run(
+                "condor_rm -forcex " + _cjobs, shell=True, capture_output=True)
             cjobs = []
 
     if cjobs:
         _cjobs = " ".join(cjobs)
-        subprocess.run("bkill -s 9 " + _cjobs, shell=True, capture_output=True)
+        subprocess.run("condor_rm " + _cjobs, shell=True, capture_output=True)
+        subprocess.run("condor_rm -forcex " + _cjobs, shell=True, capture_output=True)
         cjobs = []
 
 
-def _fmt_time(timelimit):
-    hrs = timelimit // 60
-    mins = timelimit - hrs * 60
-    return "%02d:%02d" % (hrs, mins)
+def _get_all_job_statuses_call(cjobs):
+    res = subprocess.run(
+        "condor_q %s -af:jr JobStatus ExitBySignal" % " ".join(cjobs),
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    if res.returncode == 0:
+        status = {c: None for c in cjobs}
+        for line in res.stdout.decode("utf-8").splitlines():
+            line = line.strip().split(" ")
+            if line[0] in cjobs:
+                if line[2].strip() == "true":
+                    status[line[0]] = "9"
+                else:
+                    if len(line[1]) > 0:
+                        status[line[0]] = line[1]
+                    else:
+                        status[line[0]] = None
+    else:
+        status = {}
+
+    return status
 
 
-def _submit_lsf_job(*, subid, job_data, mem, execid, timelimit, execdir):
+def _get_all_job_statuses(cjobs):
+    status = {}
+    jobs_to_check = []
+    for cjob in cjobs:
+        jobs_to_check.append(cjob)
+        if len(jobs_to_check) == 100:
+            status.update(_get_all_job_statuses_call(jobs_to_check))
+            jobs_to_check = []
+
+    if jobs_to_check:
+        status.update(_get_all_job_statuses_call(jobs_to_check))
+
+    for cjob in list(status):
+        if cjob not in cjobs:
+            del status[cjob]
+
+    return status
+
+
+def _submit_condor_job(
+    *, execdir, execid, subid, job_data, mem, extra_condor_submit_lines,
+):
     cjob = None
 
     infile = os.path.join(execdir, subid, "input.pkl")
-    jobfile = os.path.join(execdir, subid, "run.sh")
+    condorfile = os.path.join(execdir, subid, "condor.sub")
     outfile = os.path.join(execdir, subid, "output.pkl")
     logfile = os.path.join(execdir, subid, "log.oe")
 
@@ -92,45 +133,54 @@ def _submit_lsf_job(*, subid, job_data, mem, execid, timelimit, execdir):
     with open(infile, "wb") as fp:
         cloudpickle.dump(job_data, fp)
 
-    # compute mem requirement
-    if mem > 4:
-        mem_str = ' && span[hosts=1]'
-        n = 2
-    else:
-        n = 1
-        mem_str = ""
-
     ##############################
-    # submit the LSF job
-    with open(jobfile, "w") as fp:
+    # submit the condor job
+    with open(condorfile, "w") as fp:
         fp.write(
-            JOB_TEMPLATE.format(
-                input=infile,
-                output=outfile,
-                logfile=logfile,
-                timelimit=_fmt_time(timelimit),
-                jobname="job-%s-%s" % (execid, subid),
-                mem_str=mem_str,
-                n=n,
-            )
+            """\
+Universe       = vanilla
+Notification   = Never
+# this executable must have u+x bits
+Executable     = %s
+request_memory = %dG
+kill_sig       = SIGINT
+leave_in_queue = True
+max_retries    = 0
+getenv         = True
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+preserve_relative_paths = True
+transfer_input_files = %s
+%s
+
++job_name = "%s"
+transfer_output_files = %s,%s
+Arguments = %s %s %s
+Queue
+""" % (
+                os.path.join(execdir, "run.sh"),
+                mem,
+                infile,
+                extra_condor_submit_lines,
+                "job-%s-%s" % (execid, subid),
+                outfile,
+                logfile,
+                infile,
+                outfile,
+                logfile,
+            ),
         )
-    subprocess.run(
-        "chmod u+x %s" % jobfile,
-        shell=True,
-        check=True,
-        capture_output=True,
-    )
 
     sub = subprocess.run(
-        "bsub < %s" % jobfile,
+        "condor_submit %s" % condorfile,
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
     if sub.returncode != 0 or sub.stdout is None:
         raise RuntimeError(
-            "Error running 'bsub < %s' - return code %d - stdout+stderr '%s'" % (
-                jobfile,
+            "Error running 'condor_submit %s' - return code %d - stdout+stderr '%s' " % (
+                condorfile,
                 sub.returncode,
                 sub.stdout.decode("utf-8") if sub.stdout is not None else "",
             )
@@ -139,40 +189,37 @@ def _submit_lsf_job(*, subid, job_data, mem, execid, timelimit, execdir):
     cjob = None
     for line in sub.stdout.decode("utf-8").splitlines():
         line = line.strip()
-        line = line.split(" ")
-        cjob = line[1].replace("<", "").replace(">", "")
-        try:
-            int(cjob)
+        if "submitted to cluster" in line:
+            line = line.split(" ")
+            cjob = line[5] + "0"
             break
-        except Exception:
-            cjob = None
-            continue
 
     if cjob is None:
         raise RuntimeError(
-            "Error running 'bsub < %s' - no job id - return code %d - stdout '%s'" % (
-                jobfile,
+            "Error running 'condor_submit %s' - no job id - return code %d - stdout+stderr '%s'" % (
+                condorfile,
                 sub.returncode,
                 sub.stdout.decode("utf-8") if sub.stdout is not None else "",
             )
         )
 
-    ALL_LSF_JOBS[cjob] = None
+    ALL_CONDOR_JOBS[cjob] = None
 
     return cjob
 
 
-def _attempt_submit(*, job_data, mem, execid, timelimit, execdir):
+def _attempt_submit(*, job_data, execid, execdir, mem, extra_condor_submit_lines):
     subid = uuid.uuid4().hex
-    LOGGER.debug("submitting LSF job for subid %s", subid)
+
+    LOGGER.debug("submitting condor job for subid %s", subid)
     try:
-        cjob = _submit_lsf_job(
+        cjob = _submit_condor_job(
+            execdir=execdir,
+            execid=execid,
             subid=subid,
             job_data=job_data,
             mem=mem,
-            execid=execid,
-            timelimit=timelimit,
-            execdir=execdir,
+            extra_condor_submit_lines=extra_condor_submit_lines,
         )
         e = "odd error"
     except Exception as _e:
@@ -180,59 +227,63 @@ def _attempt_submit(*, job_data, mem, execid, timelimit, execdir):
         cjob = None
 
     if cjob is None:
-        LOGGER.error("could not submit LSF job for subid %s: %s", subid, e)
+        LOGGER.error("could not submit condor job for subid %s: %s", subid, e)
     else:
-        LOGGER.debug("submitted LSF job %s for subid %s", cjob, subid)
+        LOGGER.debug("submitted condor job %s for subid %s", cjob, subid)
 
     return cjob, subid
 
 
-class SLACLSFParallel():
-    """A joblib-like interface for the SLAC LSF system that yeilds results.
+class BNLCondorParallel():
+    """A joblib-like interface for the BNL condor queue.
 
     Parameters
     ----------
     n_jobs : int, optional
-        The maximum number of LSF jobs. Default of -1 is 3000.
-    timelimit : int, optional
-        Requested time limit in minutes.
+        The maximum number of condor jobs. Default is 10000.
+    mem : int, optional
+        Requested memory in GB. Default is 2.
     verbose : int, optional
         If verbose >= 50, all running data will be preserved. Otherwise it is deleted.
-    mem : float, optional
-        The required memory in GB. Default is 3.8.
+    extra_condor_submit_lines : str, optional
+        Extra lines of text to pass to the condor submit script.
     """
     def __init__(
-        self, n_jobs=-1,
-        verbose=0, timelimit=2820, mem=3.8,
+        self, n_jobs=10000, verbose=0, mem=2, extra_condor_submit_lines=None,
     ):
-        self.n_jobs = n_jobs if n_jobs > 0 else 3000
+        self.n_jobs = n_jobs
         self.execid = uuid.uuid4().hex
-        self.execdir = "lsf-yield/%s" % self.execid
+        self.execdir = "condor-exec/%s" % self.execid
         self.verbose = verbose
-        self.debug = True if self.verbose >= 50 else False
-        self.timelimit = timelimit
+        self.debug = self.verbose >= 50
         self.mem = mem
+        self.extra_condor_submit_lines = extra_condor_submit_lines or ""
 
         if not self.debug:
-            atexit.register(_kill_lsf_jobs)
+            atexit.register(_kill_condor_jobs)
         else:
-            atexit.unregister(_kill_lsf_jobs)
+            atexit.unregister(_kill_condor_jobs)
 
     def __enter__(self):
         os.makedirs(self.execdir, exist_ok=True)
-        if self.verbose > 0:
+        if self.debug:
             print(
-                "starting SLACLSFParallel("
-                "n_jobs=%s, timelimit=%s, "
-                "verbose=%s, mem=%s) w/ exec dir='%s'" % (
-                    self.n_jobs,
-                    self.timelimit,
-                    self.verbose,
-                    self.mem,
+                "starting condor executor: "
+                "exec dir %s - max workers %s" % (
                     self.execdir,
+                    self.max_workers,
                 ),
                 flush=True,
             )
+
+        with open(os.path.join(self.execdir, "run.sh"), "w") as fp:
+            fp.write(WORKER_INIT)
+        subprocess.run(
+            "chmod u+x " + os.path.join(self.execdir, "run.sh"),
+            shell=True,
+            check=True,
+            capture_output=True,
+        )
 
         self._all_jobs = {}
         self._jobid_to_subid = {}
@@ -267,9 +318,8 @@ class SLACLSFParallel():
                             job_data=job,
                             mem=self.mem,
                             execid=self.execid,
-                            timelimit=self.timelimit,
                             execdir=self.execdir,
-
+                            extra_condor_submit_lines=self.extra_condor_submit_lines,
                         ))
                         self._num_jobs += 1
                         nsub += 1
@@ -296,7 +346,7 @@ class SLACLSFParallel():
             if len(cjobs) == 0 and done:
                 return
 
-            statuses = self._get_all_job_statuses(cjobs)
+            statuses = _get_all_job_statuses(cjobs)
 
             for cjob, status_code in statuses.items():
                 didit, res = self._attempt_result(cjob, status_code)
@@ -308,20 +358,16 @@ class SLACLSFParallel():
         res = None
         subid = self._jobid_to_subid.get(cjob, None)
 
-        if (
-            subid is not None
-            and status_code in [None, "NOT FOUND", "DONE", "EXIT"]
-            and time.time() - self._all_jobs[subid][1] > SCHED_DELAY
-        ):
+        if subid is not None and status_code in [None, "4", "3", "5", "7", "9"]:
             outfile = os.path.join(self.execdir, subid, "output.pkl")
             infile = os.path.join(self.execdir, subid, "input.pkl")
-            jobfile = os.path.join(self.execdir, subid, "run.sh")
+            condorfile = os.path.join(self.execdir, subid, "condor.sub")
             logfile = os.path.join(self.execdir, subid, "log.oe")
 
-            del ALL_LSF_JOBS[cjob]
+            del ALL_CONDOR_JOBS[cjob]
             if not self.debug:
                 subprocess.run(
-                    "bkill -s 9 %s" % cjob,
+                    "condor_rm %s; condor_rm -forcex %s" % (cjob, cjob),
                     shell=True,
                     capture_output=True,
                 )
@@ -331,7 +377,7 @@ class SLACLSFParallel():
 
             if not os.path.exists(outfile):
                 LOGGER.debug(
-                    "output %s does not exist for subid %s, LSF job %s",
+                    "output %s does not exist for subid %s, condor job %s",
                     outfile,
                     subid,
                     cjob,
@@ -342,27 +388,27 @@ class SLACLSFParallel():
                     res = joblib.load(outfile)
                 except Exception as e:
                     res = e
-            elif status_code in [None, "DONE", "EXIT", "NOT FOUND"]:
+            elif status_code in [None, "3", "5", "7", "9"]:
                 res = RuntimeError(
-                    "LSF job %s: status '%s' w/ no output" % (
+                    "Condor job %s: status '%s' w/ no output" % (
                         subid, STATUS_DICT[status_code]
                     )
                 )
             else:
                 res = RuntimeError(
-                    "LSF job %s: no status or job output found!" % subid)
+                    "Condor job %s: no status or job output found!" % subid)
 
             if isinstance(res, Exception):
                 if not self.debug:
                     subprocess.run(
-                        "rm -f %s %s %s" % (infile, outfile, jobfile),
+                        "rm -f %s %s %s" % (infile, outfile, condorfile),
                         shell=True,
                         capture_output=True,
                     )
             else:
                 if not self.debug:
                     subprocess.run(
-                        "rm -f %s %s %s %s" % (infile, outfile, jobfile, logfile),
+                        "rm -f %s %s %s %s" % (infile, outfile, condorfile, logfile),
                         shell=True,
                         capture_output=True,
                     )
@@ -373,46 +419,3 @@ class SLACLSFParallel():
             didit = True
 
         return didit, res
-
-    def _get_all_job_statuses(self, cjobs):
-        res = subprocess.run(
-            "bjobs -aw",
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
-
-        status = {}
-
-        if res.returncode == 0:
-            for line in res.stdout.decode("utf-8").splitlines():
-                line = line.strip()
-                parts = line.split()
-                jobid = None
-                if parts[0] == "JOBID":
-                    continue
-                elif "not responding" in line:
-                    # this means the daemon is down so any status info is bad
-                    return {}
-                elif self.execid not in line:
-                    # not our job
-                    continue
-                elif "not found" in line:
-                    jobid = parts[1].replace("<", "").replace(">", "")
-                    jobstate = "NOT FOUND"
-                    if jobid in cjobs:
-                        status[jobid] = jobstate
-                else:
-                    jobid = parts[0].strip()
-                    jobstate = parts[2].strip()
-                    if jobid in cjobs:
-                        status[jobid] = jobstate
-
-                if jobid is not None:
-                    try:
-                        int(jobid)
-                        assert jobstate in STATUS_DICT
-                    except Exception:
-                        LOGGER.error("job id and state not parsed: '%s'", line.strip())
-
-        return status
