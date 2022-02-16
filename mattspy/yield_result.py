@@ -18,7 +18,7 @@ class ParallelResult(object):
 
     def result(self):
         if not self._done:
-            raise RuntimeError("cannot get result/exception is ParallelResult is not done!")
+            raise RuntimeError("cannot get result/exception if ParallelResult is not done!")
         elif hasattr(self, "_res"):
             return self._res
         elif hasattr(self, "_exc"):
