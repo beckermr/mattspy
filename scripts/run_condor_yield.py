@@ -16,13 +16,15 @@ def main():
 
     with BNLCondorParallel(verbose=100, n_jobs=200) as exc:
         tot = 0
-        for res in PBar(
+        for pr in PBar(
             exc([joblib.delayed(fun)(i) for i in range(n_jobs)]),
             total=n_jobs,
             desc="running jobs",
         ):
-            if isinstance(res, Exception):
-                print(f"failure: {repr(res)}", flush=True)
+            try:
+                res = pr.result()
+            except Exception as e:
+                print(f"failure: {repr(e)}", flush=True)
             else:
                 tot += res
 

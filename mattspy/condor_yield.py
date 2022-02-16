@@ -10,6 +10,8 @@ import time
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from .yield_result import ParallelResult
+
 LOGGER = logging.getLogger("condor_yield")
 
 ACTIVE_THREAD_LOCK = threading.RLock()
@@ -268,11 +270,12 @@ class BNLCondorParallel():
         os.makedirs(self.execdir, exist_ok=True)
         if self.debug:
             print(
-                "starting condor executor: "
-                "exec dir %s - n_jobs %s" % (
-                    self.execdir,
-                    self.n_jobs,
-                ),
+                "starting BNLCondorParallel("
+                f"n_jobs={self.n_jobs}, "
+                f"verbose={self.verbse}, "
+                f"mem={self.mem}, "
+                f"extra_condor_submit_lines={self.extra_condor_submit_lines}) "
+                f"w/ exec dir='{self.execdir}'",
                 flush=True,
             )
 
@@ -355,8 +358,8 @@ class BNLCondorParallel():
 
     def _attempt_result(self, cjob, status_code):
         didit = False
-        res = None
         subid = self._jobid_to_subid.get(cjob, None)
+        pr = None
 
         if subid is not None and status_code in [None, "4", "3", "5", "7", "9"]:
             outfile = os.path.join(self.execdir, subid, "output.pkl")
@@ -383,6 +386,7 @@ class BNLCondorParallel():
                     cjob,
                 )
 
+            pr = ParallelResult()
             if os.path.exists(outfile):
                 try:
                     res = joblib.load(outfile)
@@ -399,6 +403,7 @@ class BNLCondorParallel():
                     "Condor job %s: no status or job output found!" % subid)
 
             if isinstance(res, Exception):
+                pr.set_exception(res)
                 if not self.debug:
                     subprocess.run(
                         "rm -f %s %s %s" % (infile, outfile, condorfile),
@@ -406,6 +411,7 @@ class BNLCondorParallel():
                         capture_output=True,
                     )
             else:
+                pr.set_result(res)
                 if not self.debug:
                     subprocess.run(
                         "rm -f %s %s %s %s" % (infile, outfile, condorfile, logfile),
@@ -418,4 +424,4 @@ class BNLCondorParallel():
 
             didit = True
 
-        return didit, res
+        return didit, pr

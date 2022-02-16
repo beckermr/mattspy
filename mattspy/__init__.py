@@ -12,7 +12,7 @@ except PackageNotFoundError:
 
 from . import stats
 from . import plotting
-from .condor_exec import BNLCondorExecutor
+from .yield_result import ParallelResult
 from .condor_yield import BNLCondorParallel
 from .lsf_yield import SLACLSFParallel
 from .loky_yield import LokyParallel
