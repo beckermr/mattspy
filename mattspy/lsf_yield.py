@@ -292,8 +292,8 @@ class SLACLSFParallel():
                 del futs
 
             # raise any errors
-            for index, err in suberrs:
-                yield ParallelResult(err, index)
+            for _index, err in suberrs:
+                yield ParallelResult(err, _index)
             suberrs = []
 
             # collect any results
@@ -307,9 +307,9 @@ class SLACLSFParallel():
             statuses = self._get_all_job_statuses(cjobs)
 
             for cjob, status_code in statuses.items():
-                didit, res, index = self._attempt_result(cjob, status_code)
+                didit, res, _index = self._attempt_result(cjob, status_code)
                 if didit:
-                    yield ParallelResult(res, index)
+                    yield ParallelResult(res, _index)
 
     def _attempt_result(self, cjob, status_code):
         didit = False
