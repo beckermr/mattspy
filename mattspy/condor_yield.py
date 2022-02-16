@@ -269,9 +269,9 @@ class BNLCondorParallel():
         if self.debug:
             print(
                 "starting condor executor: "
-                "exec dir %s - max workers %s" % (
+                "exec dir %s - n_jobs %s" % (
                     self.execdir,
-                    self.max_workers,
+                    self.n_jobs,
                 ),
                 flush=True,
             )
