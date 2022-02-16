@@ -7,7 +7,7 @@ from ..loky_yield import LokyParallel
 def test_loky_yield():
 
     def fun(i):
-        time.sleep(10)
+        time.sleep(1)
         return i
 
     n_jobs = 100
