@@ -38,7 +38,7 @@ JOB_TEMPLATE = """\
 #BSUB -n {n}
 #BSUB -oo ./{logfile}
 #BSUB -W {timelimit}
-#BSUB -R "linux64 && rhel60 && scratch > 2{mem_str}"
+#BSUB -R "select[linux64 && rhel60 && scratch > 2]{mem_str}"
 
 export OMP_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
