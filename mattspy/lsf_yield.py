@@ -17,7 +17,7 @@ FS_DELAY = 30
 POLL_DELAY = 10
 
 STATUS_DICT = {
-    None: "unknown",
+    None: "none",
     "DONE": "completed",
     "EXIT": "failed+exited",
     "NOT FOUND": "not found",
@@ -27,6 +27,7 @@ STATUS_DICT = {
     "USUSP": "suspended by owner when pending",
     "SSUSP": "suspended by systen",
     "RUN": "running",
+    "UNKWN": "unknown",
 }
 
 ALL_LSF_JOBS = {}
