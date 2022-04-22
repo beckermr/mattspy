@@ -95,7 +95,7 @@ def _submit_lsf_job(*, subid, job_data, mem, execid, timelimit, execdir):
 
     # compute mem requirement
     if mem > 4:
-        mem_str = ' && span[hosts=1]'
+        mem_str = ' span[hosts=1]'
         n = 2
     else:
         n = 1
