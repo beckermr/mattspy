@@ -264,7 +264,7 @@ class BNLCondorParallel():
 
     def __enter__(self):
         os.makedirs(self.execdir, exist_ok=True)
-        if self.debug:
+        if self.verbose > 0:
             print(
                 "starting BNLCondorParallel("
                 f"n_jobs={self.n_jobs}, "
@@ -423,6 +423,11 @@ class BNLCondorParallel():
                 if not self.debug:
                     subprocess.run(
                         "rm -f %s %s %s %s" % (infile, outfile, condorfile, logfile),
+                        shell=True,
+                        capture_output=True,
+                    )
+                    subprocess.run(
+                        "rmdir " + os.path.join(self.execdir, subid),
                         shell=True,
                         capture_output=True,
                     )
