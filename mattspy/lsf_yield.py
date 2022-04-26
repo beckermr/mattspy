@@ -376,6 +376,11 @@ class SLACLSFParallel():
                         shell=True,
                         capture_output=True,
                     )
+                    subprocess.run(
+                        "rmdir " + os.path.join(self.execdir, subid),
+                        shell=True,
+                        capture_output=True,
+                    )
 
             index = self._all_jobs[subid][2]
             self._all_jobs[subid] = (
