@@ -21,7 +21,8 @@ def mad(x, axis=None, no_scale=False):
     mad: float
         MAD of array x
     """
-    mad = np.median(np.abs(x - np.median(x, axis=axis)), axis=axis)
+    kd = True if axis is not None else False
+    mad = np.median(np.abs(x - np.median(x, axis=axis, keepdims=kd)), axis=axis)
     if no_scale:
         return mad
     else:
