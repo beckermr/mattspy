@@ -5,7 +5,6 @@ from ..loky_yield import LokyParallel
 
 
 def test_loky_yield():
-
     def fun(i):
         time.sleep(1)
         return i

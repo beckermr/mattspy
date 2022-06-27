@@ -95,7 +95,7 @@ def _submit_lsf_job(*, subid, job_data, mem, execid, timelimit, execdir):
 
     # compute mem requirement
     if mem > 4:
-        mem_str = ' span[hosts=1]'
+        mem_str = " span[hosts=1]"
         n = 2
     else:
         n = 1
@@ -130,7 +130,8 @@ def _submit_lsf_job(*, subid, job_data, mem, execid, timelimit, execdir):
     )
     if sub.returncode != 0 or sub.stdout is None:
         raise ParallelSubmissionError(
-            "Error running 'bsub < %s' - return code %d - stdout+stderr '%s'" % (
+            "Error running 'bsub < %s' - return code %d - stdout+stderr '%s'"
+            % (
                 jobfile,
                 sub.returncode,
                 sub.stdout.decode("utf-8") if sub.stdout is not None else "",
@@ -151,7 +152,8 @@ def _submit_lsf_job(*, subid, job_data, mem, execid, timelimit, execdir):
 
     if cjob is None:
         raise ParallelSubmissionError(
-            "Error running 'bsub < %s' - no job id - return code %d - stdout '%s'" % (
+            "Error running 'bsub < %s' - no job id - return code %d - stdout '%s'"
+            % (
                 jobfile,
                 sub.returncode,
                 sub.stdout.decode("utf-8") if sub.stdout is not None else "",
@@ -185,7 +187,7 @@ def _attempt_submit(*, job_data, mem, execid, timelimit, execdir):
     return cjob, subid
 
 
-class SLACLSFParallel():
+class SLACLSFParallel:
     """A joblib-like interface for the SLAC LSF system that yeilds results.
 
     Parameters
@@ -199,9 +201,13 @@ class SLACLSFParallel():
     mem : float, optional
         The required memory in GB. Default is 3.8.
     """
+
     def __init__(
-        self, n_jobs=-1,
-        verbose=0, timelimit=2820, mem=3.8,
+        self,
+        n_jobs=-1,
+        verbose=0,
+        timelimit=2820,
+        mem=3.8,
     ):
         self.n_jobs = n_jobs if n_jobs > 0 else 3000
         self.execid = uuid.uuid4().hex
@@ -222,7 +228,8 @@ class SLACLSFParallel():
             print(
                 "starting SLACLSFParallel("
                 "n_jobs=%s, timelimit=%s, "
-                "verbose=%s, mem=%s) w/ exec dir='%s'" % (
+                "verbose=%s, mem=%s) w/ exec dir='%s'"
+                % (
                     self.n_jobs,
                     self.timelimit,
                     self.verbose,
@@ -262,15 +269,16 @@ class SLACLSFParallel():
                         done = True
 
                     if not done:
-                        futs.append(exc.submit(
-                            _attempt_submit,
-                            job_data=job,
-                            mem=self.mem,
-                            execid=self.execid,
-                            timelimit=self.timelimit,
-                            execdir=self.execdir,
-
-                        ))
+                        futs.append(
+                            exc.submit(
+                                _attempt_submit,
+                                job_data=job,
+                                mem=self.mem,
+                                execid=self.execid,
+                                timelimit=self.timelimit,
+                                execdir=self.execdir,
+                            )
+                        )
                         self._num_jobs += 1
                         nsub += 1
 
@@ -298,9 +306,7 @@ class SLACLSFParallel():
             suberrs = []
 
             # collect any results
-            cjobs = set(
-                [tp[0] for tp in self._all_jobs.values() if tp[0] is not None]
-            )
+            cjobs = set([tp[0] for tp in self._all_jobs.values() if tp[0] is not None])
 
             if len(cjobs) == 0 and done:
                 return
@@ -354,13 +360,11 @@ class SLACLSFParallel():
                     res = e
             elif status_code in [None, "DONE", "EXIT", "NOT FOUND"]:
                 res = RuntimeError(
-                    "LSF job %s: status '%s' w/ no output" % (
-                        subid, STATUS_DICT[status_code]
-                    )
+                    "LSF job %s: status '%s' w/ no output"
+                    % (subid, STATUS_DICT[status_code])
                 )
             else:
-                res = RuntimeError(
-                    "LSF job %s: no status or job output found!" % subid)
+                res = RuntimeError("LSF job %s: no status or job output found!" % subid)
 
             if isinstance(res, Exception):
                 if not self.debug:

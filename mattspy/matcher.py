@@ -9,11 +9,14 @@ def _lonlat2vec(lon, lat):
     lonr = np.deg2rad(lon)
     latr = np.deg2rad(lat)
     coslat = np.cos(latr)
-    return np.stack([
-        np.atleast_1d(np.cos(lonr) * coslat),
-        np.atleast_1d(np.sin(lonr) * coslat),
-        np.atleast_1d(np.sin(latr)),
-    ], axis=-1)
+    return np.stack(
+        [
+            np.atleast_1d(np.cos(lonr) * coslat),
+            np.atleast_1d(np.sin(lonr) * coslat),
+            np.atleast_1d(np.sin(latr)),
+        ],
+        axis=-1,
+    )
 
 
 def sphdist(lon1, lat1, lon2, lat2):
@@ -39,16 +42,14 @@ def sphdist(lon1, lat1, lon2, lat2):
     """
     if np.shape(lon1) != np.shape(lat1):
         raise ValueError(
-            "lon1 and lat1 must be the same shape for sphdist: lon1=%s lat1=%s" % (
-                np.shape(lon1), np.shape(lat1)
-            )
+            "lon1 and lat1 must be the same shape for sphdist: lon1=%s lat1=%s"
+            % (np.shape(lon1), np.shape(lat1))
         )
 
     if np.shape(lon2) != np.shape(lat2):
         raise ValueError(
-            "lon2 and lat2 must be the same shape for sphdist: lon2=%s lat2=%s" % (
-                np.shape(lon1), np.shape(lat1)
-            )
+            "lon2 and lat2 must be the same shape for sphdist: lon2=%s lat2=%s"
+            % (np.shape(lon1), np.shape(lat1))
         )
 
     if (
@@ -92,6 +93,7 @@ class Matcher(object):
     lat : array-like
         The latitude in degrees.
     """
+
     def __init__(self, lon, lat):
         self.lon = lon
         self.lat = lat
@@ -101,8 +103,14 @@ class Matcher(object):
         self.tree = cKDTree(coords, compact_nodes=False, balanced_tree=False)
 
     def query_knn(
-        self, lon, lat, k=1, distance_upper_bound=None, eps=0,
-        return_indices=False, return_distances=False,
+        self,
+        lon,
+        lat,
+        k=1,
+        distance_upper_bound=None,
+        eps=0,
+        return_indices=False,
+        return_distances=False,
     ):
         """Find the `k` nearest neighbors of each point in (lon, lat) in
         the points held by the matcher.
@@ -146,7 +154,7 @@ class Matcher(object):
             is squeezed out.
         """
         if distance_upper_bound is not None:
-            maxd = 2*np.sin(np.deg2rad(distance_upper_bound)/2.)
+            maxd = 2 * np.sin(np.deg2rad(distance_upper_bound) / 2.0)
         else:
             maxd = np.inf
 
@@ -159,10 +167,10 @@ class Matcher(object):
         if return_distances or return_indices:
             d /= 2
             np.arcsin(d, out=d, where=np.isfinite(d))
-            d = np.rad2deg(2*d)
+            d = np.rad2deg(2 * d)
 
         if return_indices:
-            i2, = np.where(np.isfinite(d))
+            (i2,) = np.where(np.isfinite(d))
             i1 = idx[i2]
             return idx, i1, i2, d
         else:
@@ -208,7 +216,7 @@ class Matcher(object):
         # The second tree in the match does not need to be balanced, and
         # turning this off yields significantly faster runtime.
         qtree = cKDTree(coords, compact_nodes=False, balanced_tree=False)
-        angle = 2.0*np.sin(np.deg2rad(radius)/2.0)
+        angle = 2.0 * np.sin(np.deg2rad(radius) / 2.0)
         idx = self.tree.query_ball_tree(qtree, angle, eps=eps)
 
         if return_indices:
@@ -217,8 +225,10 @@ class Matcher(object):
             i2 = np.array(functools.reduce(operator.iconcat, idx, []))
             if len(i1) > 0:
                 ds = sphdist(
-                    self.lon[i1], self.lat[i1],
-                    lon[i2], lat[i2],
+                    self.lon[i1],
+                    self.lat[i1],
+                    lon[i2],
+                    lat[i2],
                 )
             else:
                 ds = np.zeros(0)
@@ -258,7 +268,7 @@ class Matcher(object):
             Array of distance (degrees) for each match pair.
             Returned if return_indices is True.
         """
-        angle = 2.0*np.sin(np.deg2rad(radius)/2.0)
+        angle = 2.0 * np.sin(np.deg2rad(radius) / 2.0)
         idx = self.tree.query_ball_tree(self.tree, angle, eps=eps)
         if return_indices:
             n_match_per_obj = np.array([len(row) for row in idx])
@@ -266,8 +276,10 @@ class Matcher(object):
             i2 = np.array(functools.reduce(operator.iconcat, idx, []))
             if len(i1) > 0:
                 ds = sphdist(
-                    self.lon[i1], self.lat[i1],
-                    self.lon[i2], self.lat[i2],
+                    self.lon[i1],
+                    self.lat[i1],
+                    self.lon[i2],
+                    self.lat[i2],
                 )
             else:
                 ds = np.zeros(0)

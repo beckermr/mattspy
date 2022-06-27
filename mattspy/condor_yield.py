@@ -64,7 +64,8 @@ def _kill_condor_jobs():
             _cjobs = " ".join(cjobs)
             subprocess.run("condor_rm " + _cjobs, shell=True, capture_output=True)
             subprocess.run(
-                "condor_rm -forcex " + _cjobs, shell=True, capture_output=True)
+                "condor_rm -forcex " + _cjobs, shell=True, capture_output=True
+            )
             cjobs = []
 
     if cjobs:
@@ -119,7 +120,13 @@ def _get_all_job_statuses(cjobs):
 
 
 def _submit_condor_job(
-    *, execdir, execid, subid, job_data, mem, extra_condor_submit_lines,
+    *,
+    execdir,
+    execid,
+    subid,
+    job_data,
+    mem,
+    extra_condor_submit_lines,
 ):
     infile = os.path.join(execdir, subid, "input.pkl")
     condorfile = os.path.join(execdir, subid, "condor.sub")
@@ -157,7 +164,8 @@ transfer_input_files = %s
 transfer_output_files = %s,%s
 Arguments = %s %s %s
 Queue
-""" % (
+"""
+            % (
                 os.path.join(execdir, "run.sh"),
                 mem,
                 infile,
@@ -179,7 +187,8 @@ Queue
     )
     if sub.returncode != 0 or sub.stdout is None:
         raise ParallelSubmissionError(
-            "Error running 'condor_submit %s' - return code %d - stdout+stderr '%s' " % (
+            "Error running 'condor_submit %s' - return code %d - stdout+stderr '%s' "
+            % (
                 condorfile,
                 sub.returncode,
                 sub.stdout.decode("utf-8") if sub.stdout is not None else "",
@@ -196,7 +205,8 @@ Queue
 
     if cjob is None:
         raise ParallelSubmissionError(
-            "Error running 'condor_submit %s' - no job id - return code %d - stdout+stderr '%s'" % (
+            "Error running 'condor_submit %s' - no job id - return code %d - stdout+stderr '%s'"
+            % (
                 condorfile,
                 sub.returncode,
                 sub.stdout.decode("utf-8") if sub.stdout is not None else "",
@@ -232,7 +242,7 @@ def _attempt_submit(*, job_data, execid, execdir, mem, extra_condor_submit_lines
     return cjob, subid
 
 
-class BNLCondorParallel():
+class BNLCondorParallel:
     """A joblib-like interface for the BNL condor queue.
 
     Parameters
@@ -246,8 +256,13 @@ class BNLCondorParallel():
     extra_condor_submit_lines : str, optional
         Extra lines of text to pass to the condor submit script.
     """
+
     def __init__(
-        self, n_jobs=10000, verbose=0, mem=2, extra_condor_submit_lines=None,
+        self,
+        n_jobs=10000,
+        verbose=0,
+        mem=2,
+        extra_condor_submit_lines=None,
     ):
         self.n_jobs = n_jobs
         self.execid = uuid.uuid4().hex
@@ -298,7 +313,8 @@ class BNLCondorParallel():
         )
         if sub.returncode != 0:
             raise ParallelSubmissionError(
-                "Could not make writable run script at '%s'!" % os.path.join(self.execdir, "run.sh")
+                "Could not make writable run script at '%s'!"
+                % os.path.join(self.execdir, "run.sh")
             )
 
         index = 0
@@ -317,14 +333,16 @@ class BNLCondorParallel():
                         done = True
 
                     if not done:
-                        futs.append(exc.submit(
-                            _attempt_submit,
-                            job_data=job,
-                            mem=self.mem,
-                            execid=self.execid,
-                            execdir=self.execdir,
-                            extra_condor_submit_lines=self.extra_condor_submit_lines,
-                        ))
+                        futs.append(
+                            exc.submit(
+                                _attempt_submit,
+                                job_data=job,
+                                mem=self.mem,
+                                execid=self.execid,
+                                execdir=self.execdir,
+                                extra_condor_submit_lines=self.extra_condor_submit_lines,
+                            )
+                        )
                         self._num_jobs += 1
                         nsub += 1
 
@@ -352,9 +370,7 @@ class BNLCondorParallel():
             suberrs = []
 
             # collect any results
-            cjobs = set(
-                [tp[0] for tp in self._all_jobs.values() if tp[0] is not None]
-            )
+            cjobs = set([tp[0] for tp in self._all_jobs.values() if tp[0] is not None])
 
             if len(cjobs) == 0 and done:
                 return
@@ -404,13 +420,13 @@ class BNLCondorParallel():
                     res = e
             elif status_code in [None, "3", "5", "7", "9"]:
                 res = RuntimeError(
-                    "Condor job %s: status '%s' w/ no output" % (
-                        subid, STATUS_DICT[status_code]
-                    )
+                    "Condor job %s: status '%s' w/ no output"
+                    % (subid, STATUS_DICT[status_code])
                 )
             else:
                 res = RuntimeError(
-                    "Condor job %s: no status or job output found!" % subid)
+                    "Condor job %s: no status or job output found!" % subid
+                )
 
             if isinstance(res, Exception):
                 if not self.debug:

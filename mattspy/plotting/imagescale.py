@@ -18,12 +18,12 @@ def segbit_scale(seg):
     seg_new = seg.copy()
     seg_new = seg_new.astype(float)
     uvals = np.sort(np.unique(seg))
-    mval = 1.0*(len(uvals)-1.0)
+    mval = 1.0 * (len(uvals) - 1.0)
     if mval < 1.0:
         mval = 1.0
     for ind, uval in enumerate(uvals):
         q = np.where(seg == uval)
-        seg_new[q] = float(ind)/mval
+        seg_new[q] = float(ind) / mval
 
     return seg_new
 
@@ -52,7 +52,7 @@ def asinh_scale(im, nonlinear=0.075):
     -------
     Created: Erin Sheldon, BNL
     """
-    img = im.astype('f4')
+    img = im.astype("f4")
 
     img /= nonlinear
     msk = img <= 0

@@ -12,7 +12,7 @@ def _run_func(rd):
     return rd[0](*rd[1], **rd[2])
 
 
-class LokyParallel():
+class LokyParallel:
     """A joblib-like interface for the loky parallel backend.
 
     Parameters
@@ -24,8 +24,12 @@ class LokyParallel():
     verbose : int, optional
         If greater than zero, print debugging information.
     """
+
     def __init__(
-        self, n_jobs=-1, env=None, verbose=0,
+        self,
+        n_jobs=-1,
+        env=None,
+        verbose=0,
     ):
         self.n_jobs = n_jobs if n_jobs > 0 else multiprocessing.cpu_count()
         self.env = env or {}
@@ -38,7 +42,8 @@ class LokyParallel():
     def __enter__(self):
         if self.verbose > 0:
             print(
-                "starting LokyParallel(n_jobs=%s, env=%s, verbose=%s)" % (
+                "starting LokyParallel(n_jobs=%s, env=%s, verbose=%s)"
+                % (
                     self.n_jobs,
                     self.env,
                     self.verbose,
@@ -59,7 +64,7 @@ class LokyParallel():
         nsub = 0
         index = 0
         while True:
-            if self._num_jobs < self.n_jobs*2 and not done and nsub < 100:
+            if self._num_jobs < self.n_jobs * 2 and not done and nsub < 100:
                 try:
                     job = next(jobs)
                 except StopIteration:

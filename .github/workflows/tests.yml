@@ -33,12 +33,14 @@ jobs:
           mamba install -y -q \
             flake8 \
             pytest \
-            pytest-xdist
+            pytest-xdist \
+            black
 
       - name: lint
         shell: bash -l {0}
         run: |
           flake8 mattspy
+          black --check --diff mattspy
 
       - name: test
         shell: bash -l {0}
