@@ -14,4 +14,3 @@ def test_mad():
     md = mad(x, axis=0)
     assert md.shape == (2,)
     np.testing.assert_allclose(md, 1.5, atol=1e-3, rtol=1e-3)
-

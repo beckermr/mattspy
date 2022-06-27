@@ -26,4 +26,4 @@ def mad(x, axis=None, no_scale=False):
     if no_scale:
         return mad
     else:
-        return 1.4826*mad
+        return 1.4826 * mad
