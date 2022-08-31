@@ -285,7 +285,7 @@ class BNLCondorParallel:
                 f"n_jobs={self.n_jobs}, "
                 f"verbose={self.verbose}, "
                 f"mem={self.mem}, "
-                f"extra_condor_submit_lines={self.extra_condor_submit_lines}) "
+                f"extra_condor_submit_lines='{self.extra_condor_submit_lines}') "
                 f"w/ exec dir='{self.execdir}'",
                 flush=True,
             )
