@@ -375,11 +375,22 @@ class BNLCondorParallel:
             if len(cjobs) == 0 and done:
                 return
 
+            status_time = time.time()
             statuses = _get_all_job_statuses(cjobs)
+            status_time = time.time() - status_time
+            status_time *= 10
 
+            n_yield = 0
+            yield_result_time = time.time()
             for cjob, status_code in statuses.items():
+                if not done and (
+                    time.time() - yield_result_time > status_time or n_yield >= 100
+                ):
+                    break
+
                 didit, res, _index = self._attempt_result(cjob, status_code)
                 if didit:
+                    n_yield += 1
                     yield ParallelResult(res, _index)
 
     def _attempt_result(self, cjob, status_code):
