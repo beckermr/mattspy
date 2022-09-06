@@ -384,8 +384,7 @@ class BNLCondorParallel:
             yield_result_time = time.time()
             for cjob, status_code in statuses.items():
                 if not done and (
-                    time.time() - yield_result_time > status_time
-                    or n_yield >= 100
+                    time.time() - yield_result_time > status_time or n_yield >= 100
                 ):
                     break
 
