@@ -378,7 +378,7 @@ class BNLCondorParallel:
             status_time = time.time()
             statuses = _get_all_job_statuses(cjobs)
             status_time = time.time() - status_time
-            status_time *= 20
+            status_time *= 10
 
             n_yield = 0
             yield_result_time = time.time()
