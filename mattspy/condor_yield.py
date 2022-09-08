@@ -152,6 +152,7 @@ Executable     = %s
 request_memory = %dG
 kill_sig       = SIGINT
 leave_in_queue = True
+on_exit_hold   = (ExitBySignal == True) || (ExitCode != 0)
 max_retries    = 0
 getenv         = True
 should_transfer_files = YES
