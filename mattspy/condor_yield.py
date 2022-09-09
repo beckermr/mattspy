@@ -392,7 +392,9 @@ class BNLCondorParallel:
                 if (
                     not done
                     and self._num_jobs < self.n_jobs
-                    and (time.time() - yield_result_time > status_time or n_yield >= 100)
+                    and (
+                        time.time() - yield_result_time > status_time or n_yield >= 100
+                    )
                 ):
                     break
 
