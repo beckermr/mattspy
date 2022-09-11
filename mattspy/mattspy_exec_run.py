@@ -9,7 +9,7 @@ def run_pickled_task():
     output_file = sys.argv[2]
     logfile = sys.argv[3]
     if len(sys.argv) > 4:
-        use_exit_code = True
+        use_exit_code = True if sys.argv[4] == "1" else False
     else:
         use_exit_code = False
     errored = False

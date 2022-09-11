@@ -51,7 +51,7 @@ mkdir -p $(dirname $2)
 mkdir -p $(dirname $3)
 touch $3
 
-mattspy-exec-run-pickled-task $1 $2 $3 &> $3
+mattspy-exec-run-pickled-task $1 $2 $3 1 &> $3
 """
 
 

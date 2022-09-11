@@ -52,7 +52,7 @@ export TMPDIR=/scratch/$LSB_JOBID
 mkdir -p $(dirname {output})
 mkdir -p $(dirname {logfile})
 
-mattspy-exec-run-pickled-task {input} {output} {logfile}
+mattspy-exec-run-pickled-task {input} {output} {logfile} 1
 
 rm -rf /scratch/$LSB_JOBID
 """
