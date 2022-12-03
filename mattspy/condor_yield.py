@@ -126,6 +126,7 @@ def _submit_condor_job(
     subid,
     job_data,
     mem,
+    cpus,
     extra_condor_submit_lines,
 ):
     infile = os.path.join(execdir, subid, "input.pkl")
@@ -150,6 +151,7 @@ Notification   = Never
 # this executable must have u+x bits
 Executable     = %s
 request_memory = %dG
+request_cpus   = %d
 kill_sig       = SIGINT
 leave_in_queue = True
 on_exit_hold   = (ExitBySignal == True) || (ExitCode != 0)
@@ -169,6 +171,7 @@ Queue
             % (
                 os.path.join(execdir, "run.sh"),
                 mem,
+                cpus,
                 infile,
                 extra_condor_submit_lines,
                 "job-%s-%s" % (execid, subid),
@@ -219,7 +222,7 @@ Queue
         return cjob
 
 
-def _attempt_submit(*, job_data, execid, execdir, mem, extra_condor_submit_lines):
+def _attempt_submit(*, job_data, execid, execdir, mem, cpus, extra_condor_submit_lines):
     subid = uuid.uuid4().hex
 
     LOGGER.debug("submitting condor job for subid %s", subid)
@@ -230,6 +233,7 @@ def _attempt_submit(*, job_data, execid, execdir, mem, extra_condor_submit_lines
             subid=subid,
             job_data=job_data,
             mem=mem,
+            cpus=cpus,
             extra_condor_submit_lines=extra_condor_submit_lines,
         )
     except Exception as e:
@@ -250,6 +254,8 @@ class BNLCondorParallel:
     ----------
     n_jobs : int, optional
         The maximum number of condor jobs. Default is 10000.
+    cpus : int, optional
+        The number of cpus to request. Default is 1.
     mem : int, optional
         Requested memory in GB. Default is 2.
     verbose : int, optional
@@ -262,6 +268,7 @@ class BNLCondorParallel:
         self,
         n_jobs=10000,
         verbose=0,
+        cpus=1,
         mem=2,
         extra_condor_submit_lines=None,
     ):
@@ -271,6 +278,7 @@ class BNLCondorParallel:
         self.verbose = verbose
         self.debug = self.verbose >= 50
         self.mem = mem
+        self.cpus = cpus
         self.extra_condor_submit_lines = extra_condor_submit_lines or ""
 
         if not self.debug:
@@ -285,6 +293,7 @@ class BNLCondorParallel:
                 "starting BNLCondorParallel("
                 f"n_jobs={self.n_jobs}, "
                 f"verbose={self.verbose}, "
+                f"cpus={self.cpus}, "
                 f"mem={self.mem}, "
                 f"extra_condor_submit_lines='{self.extra_condor_submit_lines}') "
                 f"w/ exec dir='{self.execdir}'",
@@ -339,6 +348,7 @@ class BNLCondorParallel:
                                 _attempt_submit,
                                 job_data=job,
                                 mem=self.mem,
+                                cpus=self.cpus,
                                 execid=self.execid,
                                 execdir=self.execdir,
                                 extra_condor_submit_lines=self.extra_condor_submit_lines,
