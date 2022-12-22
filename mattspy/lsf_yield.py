@@ -306,12 +306,12 @@ class SLACLSFParallel:
             suberrs = []
 
             # collect any results
+            status_time = time.time()
             cjobs = set([tp[0] for tp in self._all_jobs.values() if tp[0] is not None])
 
             if len(cjobs) == 0 and done:
                 return
 
-            status_time = time.time()
             statuses = self._get_all_job_statuses(cjobs)
             status_time = time.time() - status_time
             status_time *= 10
