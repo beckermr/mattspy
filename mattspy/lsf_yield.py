@@ -28,6 +28,7 @@ STATUS_DICT = {
     "SSUSP": "suspended by systen",
     "RUN": "running",
     "UNKWN": "unknown",
+    "ZOMBI": "zombi",
 }
 
 ALL_LSF_JOBS = {}
@@ -341,7 +342,7 @@ class SLACLSFParallel:
 
         if (
             subid is not None
-            and status_code in [None, "NOT FOUND", "DONE", "EXIT"]
+            and status_code in [None, "NOT FOUND", "DONE", "EXIT", "ZOMBI"]
             and time.time() - self._all_jobs[subid][1] > SCHED_DELAY
         ):
             outfile = os.path.join(self.execdir, subid, "output.pkl")
@@ -373,7 +374,7 @@ class SLACLSFParallel:
                     res = joblib.load(outfile)
                 except Exception as e:
                     res = e
-            elif status_code in [None, "DONE", "EXIT", "NOT FOUND"]:
+            elif status_code in ["NOT FOUND", "DONE", "EXIT", "ZOMBI"]:
                 res = RuntimeError(
                     "LSF job %s: status '%s' w/ no output"
                     % (subid, STATUS_DICT[status_code])
