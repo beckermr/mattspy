@@ -420,7 +420,8 @@ class BNLCondorParallel:
             condorfile = os.path.join(self.execdir, subid, "condor.sub")
             logfile = os.path.join(self.execdir, subid, "log.oe")
 
-            del ALL_CONDOR_JOBS[cjob]
+            if cjob in ALL_CONDOR_JOBS:
+                del ALL_CONDOR_JOBS[cjob]
             if not self.debug:
                 subprocess.run(
                     "condor_rm %s; condor_rm -forcex %s" % (cjob, cjob),
