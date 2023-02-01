@@ -350,7 +350,8 @@ class SLACLSFParallel:
             jobfile = os.path.join(self.execdir, subid, "run.sh")
             logfile = os.path.join(self.execdir, subid, "log.oe")
 
-            del ALL_LSF_JOBS[cjob]
+            if cjob in ALL_LSF_JOBS:
+                del ALL_LSF_JOBS[cjob]
             if not self.debug:
                 subprocess.run(
                     "bkill -s 9 %s" % cjob,
