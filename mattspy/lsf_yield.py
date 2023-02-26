@@ -6,6 +6,7 @@ import joblib
 import atexit
 import logging
 import time
+import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .yield_result import ParallelResult, ParallelSubmissionError
@@ -97,7 +98,7 @@ def _submit_lsf_job(*, subid, job_data, mem, execid, timelimit, execdir):
     # compute mem requirement
     if mem > 4:
         mem_str = " span[hosts=1]"
-        n = 2
+        n = math.ceil(mem/4)
     else:
         n = 1
         mem_str = ""
