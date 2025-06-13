@@ -1,0 +1,14 @@
+name: mattspy
+channels:
+  - conda-forge
+dependencies:
+  - cloudpickle
+  - joblib
+  - loky
+  - numpy
+  - scipy
+  - pip
+  - setuptools>=45
+  - setuptools_scm>=7
+  - pytest
+  - pytest-xdist

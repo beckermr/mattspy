@@ -1,8 +1,0 @@
-cloudpickle
-importlib_metadata
-joblib
-loky
-numpy
-scipy
-setuptools_scm
-setuptools_scm_git_archive

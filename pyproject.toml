@@ -1,0 +1,36 @@
+[build-system]
+requires = [
+    "setuptools>=45",
+    "setuptools_scm>=7",
+    "tomli>=1.0.0; python_version < '3.11'",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mattspy"
+authors = [
+    {name = "Matthew R. Becker", email = "becker.mr@gmail.com"},
+]
+description = "Matt's python utils"
+dynamic = ["version"]
+license = {file = "LICENSE"}
+readme = "README.md"
+
+[project.urls]
+home = "https://github.com/beckermr/mattspy"
+
+[project.scripts]
+mattspy-exec-run-pickled-task = "mattspy.mattspy_exec_run:run_pickled_task"
+
+[tool.setuptools]
+include-package-data = true
+zip-safe = false
+packages = {find = {exclude=["tests*"]}}
+
+[tool.setuptools_scm]
+write_to = "mattspy/_version.py"
+write_to_template = "__version__ = '{version}'\n"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+preview = true
