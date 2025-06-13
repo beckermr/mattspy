@@ -209,7 +209,10 @@ Queue
 
     if cjob is None:
         raise ParallelSubmissionError(
-            "Error running 'condor_submit %s' - no job id - return code %d - stdout+stderr '%s'"
+            (
+                "Error running 'condor_submit %s' - no job id "
+                "- return code %d - stdout+stderr '%s'"
+            )
             % (
                 condorfile,
                 sub.returncode,
