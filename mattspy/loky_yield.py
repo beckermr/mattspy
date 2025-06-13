@@ -23,6 +23,8 @@ class LokyParallel:
         Optional environment variables to set in the loky backend.
     verbose : int, optional
         If greater than zero, print debugging information.
+    max_threads : None, optional
+        Ignored, but present to match the API.
     """
 
     def __init__(
@@ -30,6 +32,7 @@ class LokyParallel:
         n_jobs=-1,
         env=None,
         verbose=0,
+        max_threads=None,
     ):
         self.n_jobs = n_jobs if n_jobs > 0 else multiprocessing.cpu_count()
         self.env = env or {}

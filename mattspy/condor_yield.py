@@ -35,11 +35,11 @@ STATUS_DICT = {
 WORKER_INIT = """\
 #!/bin/bash
 
-export OMP_NUM_THREADS=1
-export OPENBLAS_NUM_THREADS=1
-export MKL_NUM_THREADS=1
-export VECLIB_MAXIMUM_THREADS=1
-export NUMEXPR_NUM_THREADS=1
+export OMP_NUM_THREADS={max_threads}
+export OPENBLAS_NUM_THREADS={max_threads}
+export MKL_NUM_THREADS={max_threads}
+export VECLIB_MAXIMUM_THREADS={max_threads}
+export NUMEXPR_NUM_THREADS={max_threads}
 
 # the condor system creates a scratch directory for us,
 # and cleans up afterward
@@ -262,6 +262,10 @@ class BNLCondorParallel:
         If verbose >= 50, all running data will be preserved. Otherwise it is deleted.
     extra_condor_submit_lines : str, optional
         Extra lines of text to pass to the condor submit script.
+    max_threads : int or str, optional
+        The maximum number of threads to allow within the condor job. Typically
+        this should be set to the number of CPUs, but not always. If set to 'cpus'
+        it is set to the number of cpus. Otherwise, set to an int. Default is 'cpus'.
     """
 
     def __init__(
@@ -271,6 +275,7 @@ class BNLCondorParallel:
         cpus=1,
         mem=2,
         extra_condor_submit_lines=None,
+        max_threads='cpus',
     ):
         self.n_jobs = n_jobs
         self.execid = uuid.uuid4().hex
@@ -280,6 +285,7 @@ class BNLCondorParallel:
         self.mem = mem
         self.cpus = cpus
         self.extra_condor_submit_lines = extra_condor_submit_lines or ""
+        self.max_threads = max_threads
 
         if not self.debug:
             atexit.register(_kill_condor_jobs)
@@ -295,6 +301,7 @@ class BNLCondorParallel:
                 f"verbose={self.verbose}, "
                 f"cpus={self.cpus}, "
                 f"mem={self.mem}, "
+                f"max_threads='{self.max_threads}', "
                 f"extra_condor_submit_lines='{self.extra_condor_submit_lines}') "
                 f"w/ exec dir='{self.execdir}'",
                 flush=True,
@@ -314,8 +321,9 @@ class BNLCondorParallel:
             )
 
     def __call__(self, jobs):
+        max_threads = self.cpus if self.max_threads == 'cpus' else self.max_threads
         with open(os.path.join(self.execdir, "run.sh"), "w") as fp:
-            fp.write(WORKER_INIT)
+            fp.write(WORKER_INIT.format(max_threads=max_threads))
         sub = subprocess.run(
             "chmod u+x " + os.path.join(self.execdir, "run.sh"),
             shell=True,
