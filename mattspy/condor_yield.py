@@ -275,7 +275,7 @@ class BNLCondorParallel:
         cpus=1,
         mem=2,
         extra_condor_submit_lines=None,
-        max_threads='cpus',
+        max_threads="cpus",
     ):
         self.n_jobs = n_jobs
         self.execid = uuid.uuid4().hex
@@ -321,7 +321,7 @@ class BNLCondorParallel:
             )
 
     def __call__(self, jobs):
-        max_threads = self.cpus if self.max_threads == 'cpus' else self.max_threads
+        max_threads = self.cpus if self.max_threads == "cpus" else self.max_threads
         with open(os.path.join(self.execdir, "run.sh"), "w") as fp:
             fp.write(WORKER_INIT.format(max_threads=max_threads))
         sub = subprocess.run(
