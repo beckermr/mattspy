@@ -3,14 +3,12 @@ channels:
   - conda-forge
 dependencies:
   - cloudpickle
-  - importlib_metadata
   - joblib
   - loky
   - numpy
   - scipy
-  - setuptools_scm
-  - setuptools_scm_git_archive
+  - pip
+  - setuptools>=45
+  - setuptools_scm>=7
   - pytest
   - pytest-xdist
-  - pip
-  - setuptools

@@ -1,17 +1,7 @@
-# flake8: noqa
-try:
-    from importlib.metadata import version, PackageNotFoundError
-except ImportError:
-    from importlib_metadata import version, PackageNotFoundError
+from ._version import __version__  # noqa: F401
 
-try:
-    __version__ = version("mattspy")
-except PackageNotFoundError:
-    # package is not installed
-    pass
-
-from . import stats
-from . import plotting
-from .yield_result import ParallelResult
-from .condor_yield import BNLCondorParallel
-from .loky_yield import LokyParallel
+from . import stats  # noqa: F401
+from . import plotting  # noqa: F401
+from .yield_result import ParallelResult  # noqa: F401
+from .condor_yield import BNLCondorParallel  # noqa: F401
+from .loky_yield import LokyParallel  # noqa: F401
