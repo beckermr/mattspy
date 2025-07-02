@@ -13,6 +13,98 @@ def _copy_dict_arr(darr):
 
 @dataclass(frozen=True)
 class TwoPtData:
+    """Container for two-point data measurements with associated
+    methods for cuts, chi2 computations, etc.
+
+    The two-point data is stored as dictionaries keyed on the statistic
+    plus tomographic bin combination. The possible statistics are `xip`,
+    `xim`, `gammat`, and `wtheta`. The dictionary keys then are
+    `<stat>_<bin1>_<bin2>` and each maps to numpy array with the value. For
+    gammat, the first bin is the lens bin and the second bin is the source bin.
+
+    The overall order of the two-point statistics in the data vector is stored
+    in the `order` attribute. To consruct the data vector, you combined the
+    individual two-point measurements in the order specified by `order`, applying the
+    boolean mask stored per statistics in `msk_dict`:
+
+        dv = np.concatenate(
+            [
+                data.value[stat][data.msk_dict[stat]]
+                for stat in data.order
+                if np.any(data.msk_dict[stat])
+            ],
+            axis=0,
+        )
+
+    The `TwoPtData` is immutable and will raise an exception if one attempts
+    to modify any of its attributes. To make cuts to the data, use the
+    one of the methods below. When a cut is made, the underlying data is unchanged,
+    but the boolean mask `msk_data` is updated. Each cut returns a new `TwoPTData`
+    object.
+
+    Parameters
+    ----------
+    order: tuple of str
+        A tuple of strings of the form `<stat>_<bin1>_<bin2>` specifying the order
+        of the statistics in the data vector.
+    value: dict
+        Maps strings from `order` to the data values as numpy arrays.
+    bin1: dict
+        Maps strings from `order` to the first tomographic bin.
+    bin2: dict
+        Maps strings from `order` to the second tomographic bin.
+    angbin: dict
+        Maps strings from `order` to the angle bin index.
+    ang: dict
+        Maps strings from `order` to the angle for the two-point measurement.
+    angmin: dict
+        Maps strings from `order` to the minimum angle for the data points.
+    angmax: dict
+        Maps strings from `order` to the maximum angle for the data points.
+    full_cov: np.ndarray
+        A two-dimensional array giving the covariance matrix for the data vector.
+        The size should match the entire size of the data without cuts.
+    msk_dict: dict
+        Maps strings from `order` to a boolean mask specifying which two-point
+        data points are being kept (True) and which ones are cut (False).
+
+    Attributes
+    ----------
+    dv : np.ndarray
+        The data vector with cuts from `msk_dict` applied.
+    cov : np.ndarray
+        The data vector covariance matrix for `dv`.
+    corr : np.ndarray
+        The data vector correlation matrix for `dv`.
+    msk : np.ndarray
+        A boolean mask specifying which elements of the full data vector
+        are kept.
+    dataid : tuple of strings
+        A tuple of strings specifying which data points have been kept in
+        their final order. The strings are `<stat>_<bin1>_<bin2>_<angbin>`
+        for each statistics in point.
+    ndim : int
+        The dimension of the data vector after cuts.
+
+    Methods
+    -------
+    copy()
+        Returns a copy of the `TwoPtData`.
+    read_des_twopoint(fname)
+        Construct a `TwoPtData` instance from a DES Y6 data FITS file.
+    chi2_stats(theory, nparam)
+        Compute a dictionary of chi2 statistics given a theory prediction
+        and number of parameters.
+    cut_cosmosis(cosmosis_cut_list)
+        Apply cosmosis-style cuts to a data vector.
+    cut_wtheta_crosscorr()
+        Cut `wtheta` cross-correlations from the data vector.
+    cut_component(comp, bin_num)
+        Cut all two-point statistics of data vector that use a given lens or source bin.
+    cut_twopt_stat(kind, bin1=None, bin2=None)
+        Cut a specific two-point stat.
+    """
+
     order: tuple
     value: dict
     bin1: dict
@@ -44,7 +136,15 @@ class TwoPtData:
 
         self.full_cov.setflags(write=False)
 
+        ndim = 0
+        for stat in self.order:
+            ndim += self.value[stat].shape[0]
+        assert ndim == self.full_cov.shape[0], (
+            "The full covariance matrix does not match the size of the data vector!"
+        )
+
     def copy(self):
+        """Return a copy of the TwoPtData."""
         return TwoPtData(
             copy.deepcopy(self.order),
             _copy_dict_arr(self.value),
@@ -59,9 +159,21 @@ class TwoPtData:
         )
 
     @classmethod
-    def read_des_twopoint(
-        cls, fname: str, default_type_order=("xip", "xim", "gammat", "wtheta")
-    ):
+    def read_des_twopoint(cls, fname: str):
+        """Construct a TwoPtData object from a DES FITS file.
+
+        Parameters
+        ----------
+        fname : str
+            The path to the FITS data file.
+
+        Returns
+        -------
+        TwoPtData
+            The two-point data.
+        """
+        default_type_order = ("xip", "xim", "gammat", "wtheta")
+
         keys_to_keep = [
             "value",
             "bin1",
@@ -113,6 +225,7 @@ class TwoPtData:
 
     @property
     def dv(self):
+        """The data vector w/ cuts as a numpy array."""
         if not hasattr(self, "_cut_dv"):
             dv = []
             for stat in self.order:
@@ -125,6 +238,7 @@ class TwoPtData:
 
     @property
     def msk(self):
+        """A boolean mask the cuts a full-sized data vector to the cut data vector."""
         if not hasattr(self, "_cut_msk"):
             msk = []
             for stat in self.order:
@@ -137,6 +251,7 @@ class TwoPtData:
 
     @property
     def cov(self):
+        """The covariance matrix of the data vector `dv`."""
         if not hasattr(self, "_cut_cov"):
             n_cov = np.sum(self.msk)
             assert n_cov == self.dv.shape[0]
@@ -154,6 +269,7 @@ class TwoPtData:
 
     @property
     def corr(self):
+        """The correlation matrix of the data vector `dv`."""
         if not hasattr(self, "_cut_corr"):
             cov = self.cov
             dg = np.sqrt(np.diag(cov))
@@ -165,6 +281,14 @@ class TwoPtData:
 
     @property
     def dataid(self):
+        """The dataid for the data vector.
+
+        The dataid is a tuple of strings af form
+
+            `<stat>_<bin1>_<bin2>_<angbin>`
+
+        in the order of the elements of the data vector.
+        """
         if not hasattr(self, "_dataid"):
             ids = []
             for stat in self.order:
@@ -181,9 +305,35 @@ class TwoPtData:
 
     @property
     def ndim(self):
+        """The dimenion of the cut data vector."""
         return self.dv.shape[0]
 
     def chi2_stats(self, theory, nparam):
+        """Compute chi2 statistics given a theory prediction and a
+        number of parameters.
+
+        Paremeters
+        ----------
+        theory : TwoPtData | np.ndarray
+            A `TwoPtData` object or numpy array containing the theory prediction. We
+            attempt to validate the length and/or `dataid` of the input theory
+            prediction and the method will raise an error if it detects an issue.
+            The lenth of a numpy array input should either be `TwoPtData.ndim` or
+            `TwoPTData.full_cov.shape[0]`.
+        nparam : int
+            The number of parameters to use to compute the degrees of freedom.
+
+        Returns
+        -------
+        dict of stats
+
+            chi2: the chi2 value
+            pvalue: the probability to exceed this value
+            dof: the degrees of freedom
+            nsigma: the p-value converted into an equivalent number of sigma
+                for a Gaussian
+            ndim: the number of dimensions of the data vector
+        """
         if isinstance(theory, TwoPtData):
             if self.dataid != theory.dataid:
                 assert all(did in theory.dataid for did in self.dataid), (
@@ -232,6 +382,23 @@ class TwoPtData:
         )
 
     def cut_cosmosis(self, cosmosis_cut_list):
+        """Apply a cosmosis-style cut to the data vector.
+
+        Parameters
+        ----------
+        cosmosis_cut_list : list of str
+            A list of strings specifying the cosmosis cuts. The strings are of the form
+
+                <stat>_<bin1>_<bin2> = <angle min> <angle max>
+
+            which specifies to cut the two-point statistics `<stat>_<bin1>_<bin2>` to
+            only the anglular range `angle min <= angle <= angle max`.
+
+        Returns
+        -------
+        TweoPtData
+            The cut two-point data.
+        """
         copy_args = [
             self.order,
             self.value,
@@ -260,6 +427,13 @@ class TwoPtData:
         return TwoPtData(*copy_args)
 
     def cut_wtheta_crosscorr(self):
+        """Cut the wtheta tomographic cross-correlations from the data.
+
+        Returns
+        -------
+        TweoPtData
+            The cut two-point data.
+        """
         cuts = []
         for stat in self.order:
             kind, bin1, bin2 = stat.rsplit("_", maxsplit=3)
@@ -269,6 +443,21 @@ class TwoPtData:
         return self.cut_cosmosis(cuts)
 
     def cut_component(self, comp, bin_num):
+        """Cut any parts of the data vector that use a given component
+        (e.g., lens, source, etc.).
+
+        Parameters
+        ----------
+        comp : str
+            The component, one of "s", "source", "l", or "lens" for sources and lenses.
+        bin_num : int | str
+            The tomographic bin number.
+
+        Returns
+        -------
+        TweoPtData
+            The cut two-point data.
+        """
         bin_num = f"{bin_num}"
 
         cuts = []
@@ -294,6 +483,24 @@ class TwoPtData:
         return self.cut_cosmosis(cuts)
 
     def cut_twopt_stat(self, kind, bin1=None, bin2=None):
+        """Cut a specific two-point statistic from the data vector.
+
+        Parameters
+        ----------
+        kind : str
+            A string specifying which statistic to cut of the form
+            `<stat>_<bin1>_<bin2>` or just `<stat>`. If you specify just `<stat>`,
+            then you need to also specify `bin1` and `bin2`.
+        bin1 : str | int | None
+            The first tomographic bin number.
+        bin2 : str | int | None
+            The second tomographic bin number.
+
+        Returns
+        -------
+        TwoPtData
+            The cut two-point data.
+        """
         if bin1 is not None:
             bin1 = f"{bin1}"
         if bin2 is not None:
