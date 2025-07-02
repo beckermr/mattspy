@@ -18,9 +18,6 @@ DICT_FIELDS = ["value", "bin1", "bin2", "angbin", "ang", "angmin", "angmax", "ms
 PROPERTIES = ["dv", "cov", "corr", "msk", "dataid", "ndim"]
 
 
-print(TEST_FNAME, flush=True)
-
-
 @pytest.mark.skipif(
     not os.path.exists(TEST_FNAME), reason="Test DES 2pt data cannot be found!"
 )
