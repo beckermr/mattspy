@@ -8,9 +8,17 @@ import pytest
 import mattspy
 from mattspy.twoptdata import TwoPtData
 
-TEST_FNAME = os.path.join(mattspy.__file__, "..", "data", "test_des_two_pt_data.fits")
+TEST_FNAME = os.path.join(
+    mattspy.__file__.replace("/__init__.py", ""),
+    "..",
+    "data",
+    "test_des_two_pt_data.fits",
+)
 DICT_FIELDS = ["value", "bin1", "bin2", "angbin", "ang", "angmin", "angmax", "msk_dict"]
 PROPERTIES = ["dv", "cov", "corr", "msk", "dataid", "ndim"]
+
+
+print(TEST_FNAME, flush=True)
 
 
 @pytest.mark.skipif(
