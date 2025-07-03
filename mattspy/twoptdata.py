@@ -106,6 +106,14 @@ class TwoPtData:
     increase_cov_fractionally(fraction)
         Increase the covariance by an amount `1+fraction`, preserving the
         correlation structure.
+    rebuild_only_unmasked()
+        Rebuild the `TwoPtData` by applying the masks and remaking the internal data
+        with just the unmasked data points.
+    replace_full_cov(new_full_cov)
+        Replace the full covariance matrix, returning a new `TwoPtData`
+        object.
+    cut_angle(angmin, angmax)
+        Cut all data to within a min and max angle.
     """
 
     order: tuple
@@ -550,6 +558,70 @@ class TwoPtData:
         new_diag = diag * (1.0 + fraction)
         new_cov = corr * np.outer(new_diag, new_diag)
 
+        return self.replace_full_cov(new_cov)
+
+    def rebuild_only_unmasked(self):
+        """Rebuild the `TwoPtData` by applying the masks and remaking the internal data
+        with just the unmasked data points.
+
+        After this operation, all entries in the `msk_dict` data structure will be
+        `True` and any data associated with entries that were `False` will be discarded.
+
+        Returns
+        -------
+        TwoPtData
+            The rebuilt two-point data.
+        """
+        new_order = []
+        for stat in self.order:
+            if np.any(self.msk_dict[stat]):
+                new_order.append(stat)
+
+        def _cut_and_msk_dict(dct):
+            new_dct = {}
+            for stat in new_order:
+                new_dct[stat] = dct[stat][self.msk_dict[stat]]
+            return new_dct
+
+        new_d = TwoPtData(
+            new_order,
+            _cut_and_msk_dict(self.value),
+            _cut_and_msk_dict(self.bin1),
+            _cut_and_msk_dict(self.bin2),
+            _cut_and_msk_dict(self.angbin),
+            _cut_and_msk_dict(self.ang),
+            _cut_and_msk_dict(self.angmin),
+            _cut_and_msk_dict(self.angmax),
+            self.cov.copy(),
+            _cut_and_msk_dict(self.msk_dict),
+        )
+
+        assert set(new_d.order) == set(new_d.msk_dict)
+        for stat in new_d.order:
+            assert np.all(new_d.msk_dict[stat])
+
+        return new_d
+
+    def replace_full_cov(self, new_full_cov):
+        """Replace the full covariance matrix, returning a new `TwoPtData`
+        object.
+
+        Parameters
+        ----------
+        new_full_cov : np.ndarray
+            The new full covariance matrix.
+
+        Returns
+        -------
+        TwoPtData
+            The data with a larger covariance.
+        """
+
+        assert new_full_cov.shape == self.full_cov.shape, (
+            f"New covariance matrix shape {new_full_cov.shape} is not "
+            f"equal to the original covariance matrix shape {self.full_cov.shape}!"
+        )
+
         return TwoPtData(
             self.order,
             self.value,
@@ -559,6 +631,30 @@ class TwoPtData:
             self.ang,
             self.angmin,
             self.angmax,
-            new_cov,
+            new_full_cov,
             self.msk_dict,
         )
+
+    def cut_angle(self, angmin, angmax):
+        """Cut all data to within a min and max angle.
+
+        Parameters
+        ----------
+        angmin : float
+            The minimum angle
+        angmax : float
+            The maximum angle.
+
+        Returns
+        -------
+        TwoPtData
+            The cut two-point data.
+        """
+
+        cuts = []
+        for stat in self.order:
+            cuts.append(f"{stat} = {angmin} {angmax}")
+
+        assert len(cuts) > 0, f"No cuts found for angle cut {angmin} to {angmax}!"
+
+        return self.cut_cosmosis(cuts)
