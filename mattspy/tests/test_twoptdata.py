@@ -319,6 +319,19 @@ def test_two_pt_data_dv_msk_cov_corr():
     assert np.array_equal(dorig.full_cov, d.full_cov)
 
 
+@pytest.mark.skipif(
+    not os.path.exists(TEST_FNAME), reason="Test DES 2pt data cannot be found!"
+)
+def test_two_pt_data_increase_cov_fractionally():
+    d = TwoPtData.read_des_twopoint(TEST_FNAME)
+
+    di = d.increase_cov_fractionally(0.1)
+
+    assert np.allclose(
+        np.sqrt(np.diag(di.full_cov)) / 1.1, np.sqrt(np.diag(d.full_cov))
+    )
+
+
 if __name__ == "__main__":
     orig_fname = "3x2pt_2025-06-18-09h_UNBLINDED.fits"
     new_fname = TEST_FNAME

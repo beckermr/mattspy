@@ -103,6 +103,9 @@ class TwoPtData:
         Cut all two-point statistics of data vector that use a given lens or source bin.
     cut_twopt_stat(kind, bin1=None, bin2=None)
         Cut a specific two-point stat.
+    increase_cov_fractionally(fraction)
+        Increase the covariance by an amount `1+fraction`, preserving the
+        correlation structure.
     """
 
     order: tuple
@@ -527,3 +530,35 @@ class TwoPtData:
         )
 
         return self.cut_cosmosis(cuts)
+
+    def increase_cov_fractionally(self, fraction):
+        """Increase the covariance by an amount `1+fraction`,
+        preserving the correlation structure.
+
+        Parameters
+        ----------
+        fraction : float
+            The fraction to increase the covariance.
+
+        Returns
+        -------
+        TwoPtData
+            The data with a larger covariance.
+        """
+        diag = np.sqrt(np.diag(self.full_cov))
+        corr = self.full_cov / np.outer(diag, diag)
+        new_diag = diag * (1.0 + fraction)
+        new_cov = corr * np.outer(new_diag, new_diag)
+
+        return TwoPtData(
+            self.order,
+            self.value,
+            self.bin1,
+            self.bin2,
+            self.angbin,
+            self.ang,
+            self.angmin,
+            self.angmax,
+            new_cov,
+            self.msk_dict,
+        )
