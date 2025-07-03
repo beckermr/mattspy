@@ -332,6 +332,45 @@ def test_two_pt_data_increase_cov_fractionally():
     )
 
 
+@pytest.mark.skipif(
+    not os.path.exists(TEST_FNAME), reason="Test DES 2pt data cannot be found!"
+)
+def test_two_pt_data_rebuild_only_unmasked():
+    d = TwoPtData.read_des_twopoint(TEST_FNAME)
+    dc = d.cut_wtheta_crosscorr()
+
+    dcr = dc.rebuild_only_unmasked()
+
+    assert dc.ndim == dcr.ndim
+    assert np.array_equal(dc.cov, dcr.full_cov)
+    assert np.array_equal(dc.cov, dcr.cov)
+    for attr in [
+        "value",
+        "bin1",
+        "bin2",
+        "ang",
+        "angbin",
+        "angmax",
+        "angmin",
+        "msk_dict",
+    ]:
+        adc = getattr(dc, attr)
+        adcr = getattr(dcr, attr)
+        for stat in dcr.order:
+            assert np.array_equal(adc[stat][dc.msk_dict[stat]], adcr[stat])
+
+
+@pytest.mark.skipif(
+    not os.path.exists(TEST_FNAME), reason="Test DES 2pt data cannot be found!"
+)
+def test_two_pt_data_cut_angle():
+    d = TwoPtData.read_des_twopoint(TEST_FNAME)
+    dc = d.cut_angle(10, 250.0)
+    for stat in dc.order:
+        assert np.all(dc.ang[stat][dc.msk_dict[stat]] >= 10.0)
+        assert np.all(dc.ang[stat][dc.msk_dict[stat]] <= 250.0)
+
+
 if __name__ == "__main__":
     orig_fname = "3x2pt_2025-06-18-09h_UNBLINDED.fits"
     new_fname = TEST_FNAME
