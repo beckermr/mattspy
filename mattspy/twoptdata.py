@@ -106,6 +106,14 @@ class TwoPtData:
     increase_cov_fractionally(fraction)
         Increase the covariance by an amount `1+fraction`, preserving the
         correlation structure.
+    rebuild_only_unmasked()
+        Rebuild the `TwoPtData` by applying the masks and remaking the internal data
+        with just the unmasked data points.
+    replace_full_cov(new_full_cov)
+        Replace the full covariance matrix, returning a new `TwoPtData`
+        object.
+    cut_angle(angmin, angmax)
+        Cut all data to within a min and max angle.
     """
 
     order: tuple
