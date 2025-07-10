@@ -319,7 +319,7 @@ class TwoPtData:
         """The dimenion of the cut data vector."""
         return self.dv.shape[0]
 
-    def chi2_stats(self, theory, nparam):
+    def chi2_stats(self, theory, nparam, delta_icov=None):
         """Compute chi2 statistics given a theory prediction and a
         number of parameters.
 
@@ -333,6 +333,9 @@ class TwoPtData:
             `TwoPTData.full_cov.shape[0]`.
         nparam : int
             The number of parameters to use to compute the degrees of freedom.
+        delta_icov : np.ndarray | None
+            If not None, a correction to apply to the inverse covariance before
+            computing the chi2.
 
         Returns
         -------
@@ -380,7 +383,10 @@ class TwoPtData:
 
         dof = self.ndim - nparam
         ddv = self.dv - theory
-        chi2 = np.dot(ddv, np.dot(np.linalg.inv(self.cov), ddv))
+        icov = np.linalg.inv(self.cov)
+        if delta_icov is not None:
+            icov += delta_icov
+        chi2 = np.dot(ddv, np.dot(icov, ddv))
 
         pvalue = scipy.stats.chi2.sf(chi2, dof)
         nsigma = scipy.stats.norm.isf(pvalue / 2)
