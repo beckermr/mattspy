@@ -101,6 +101,21 @@ def test_two_pt_data_chi2():
     assert np.allclose(chi2["dof"], dc.ndim - 11)
     assert np.allclose(chi2["nsigma"], pred_nsigma)
 
+    rng = np.random.default_rng(seed=42)
+    pert = rng.normal(size=dc.ndim, scale=0.01)
+    pert_dv = dc.dv * (1.0 + pert)
+    delta_chi2 = 2.0
+    chi2 = dc.chi2_stats(pert_dv, 11, delta_chi2=delta_chi2)
+    ddv = dc.dv - pert_dv
+    pred_chi2 = np.dot(ddv, np.dot(np.linalg.inv(dc.cov), ddv)) + delta_chi2
+    pred_pvalue = scipy.stats.chi2.sf(pred_chi2, dc.ndim - 11)
+    pred_nsigma = scipy.stats.norm.isf(pred_pvalue / 2)
+    assert np.allclose(chi2["chi2"], pred_chi2)
+    assert np.allclose(chi2["pvalue"], pred_pvalue)
+    assert np.allclose(chi2["ndim"], dc.ndim)
+    assert np.allclose(chi2["dof"], dc.ndim - 11)
+    assert np.allclose(chi2["nsigma"], pred_nsigma)
+
     def _remove_wtheta_x(dct):
         return {
             k: v

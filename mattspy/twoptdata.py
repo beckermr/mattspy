@@ -319,7 +319,7 @@ class TwoPtData:
         """The dimenion of the cut data vector."""
         return self.dv.shape[0]
 
-    def chi2_stats(self, theory, nparam, delta_icov=None):
+    def chi2_stats(self, theory, nparam, delta_icov=None, delta_chi2=None):
         """Compute chi2 statistics given a theory prediction and a
         number of parameters.
 
@@ -336,6 +336,9 @@ class TwoPtData:
         delta_icov : np.ndarray | None
             If not None, a correction to apply to the inverse covariance before
             computing the chi2.
+        delta_chi2 : float
+            If not None, this value is added to the chi2 before any statistics
+            are computed. It can be used to adjust the chi2 by hand if needed.
 
         Returns
         -------
@@ -387,6 +390,8 @@ class TwoPtData:
         if delta_icov is not None:
             icov += delta_icov
         chi2 = np.dot(ddv, np.dot(icov, ddv))
+        if delta_chi2 is not None:
+            chi2 += delta_chi2
 
         pvalue = scipy.stats.chi2.sf(chi2, dof)
         nsigma = scipy.stats.norm.isf(pvalue / 2)
