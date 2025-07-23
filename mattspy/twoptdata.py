@@ -390,7 +390,7 @@ class TwoPtData:
         if delta_icov is not None:
             icov += delta_icov
         chi2 = np.dot(ddv, np.dot(icov, ddv))
-        if delta_chi2 is None:
+        if delta_chi2 is not None:
             chi2 += delta_chi2
 
         pvalue = scipy.stats.chi2.sf(chi2, dof)
