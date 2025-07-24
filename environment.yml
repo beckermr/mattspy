@@ -5,6 +5,7 @@ dependencies:
   - cloudpickle
   - fitsio
   - frozendict
+  - jax
   - joblib
   - loky
   - numpy
