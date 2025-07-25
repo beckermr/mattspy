@@ -12,6 +12,7 @@ dependencies:
   - optax
   - optimistix
   - scipy
+  - scikit-learn
   - pip
   - setuptools>=45
   - setuptools_scm>=7
