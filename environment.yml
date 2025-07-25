@@ -10,6 +10,7 @@ dependencies:
   - loky
   - numpy
   - optax
+  - optimistix
   - scipy
   - pip
   - setuptools>=45
