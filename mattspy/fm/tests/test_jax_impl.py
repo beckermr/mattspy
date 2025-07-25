@@ -208,7 +208,7 @@ def test_fm_with_class_feature_eval_flat(class_ind, n_classes):
 
 @pytest.mark.parametrize("n_samples", [1, 10])
 @pytest.mark.parametrize("n_classes", [2, 13])
-def test_log_softmax_fm_eval(n_classes, n_samples):
+def test_fm_log_softmax_fm_eval(n_classes, n_samples):
     data = _gen_test_data(n_samples, 17, 5)
     x = data["x"][:, :-n_classes]
     w0 = data["w0"]
@@ -246,7 +246,7 @@ def test_log_softmax_fm_eval(n_classes, n_samples):
 
 
 @pytest.mark.parametrize("n_classes", [2, 13])
-def test_log_softmax_fm_eval_flat(n_classes):
+def test_fm_log_softmax_fm_eval_flat(n_classes):
     data = _gen_test_data(1, 17, 5, flatten=True)
     x = data["x"][:-n_classes]
     w0 = data["w0"]

@@ -33,17 +33,23 @@ def _fm_with_class_feature_eval(x, w0, w, vmat, class_ind, n_classes):
     return _fm_eval(x_with_class_feature, w0, w, vmat)
 
 
+_vmap_fm_with_class_feature_eval = jax.jit(
+    jax.vmap(
+        _fm_with_class_feature_eval,
+        in_axes=(None, None, None, None, -1, None),
+        out_axes=-1,
+    ),
+    static_argnames=("n_classes",),
+)
+
+
 @partial(jax.jit, static_argnames=("n_classes",))
 def _log_softmax_fm_eval(x, w0, w, vmat, n_classes):
     class_inds = jnp.arange(n_classes, dtype=int)
     if jnp.ndim(x) == 2:
         class_inds = jnp.tile(class_inds, (x.shape[0], 1))
     return jax.nn.log_softmax(
-        jax.vmap(
-            _fm_with_class_feature_eval,
-            in_axes=(None, None, None, None, -1, None),
-            out_axes=-1,
-        )(x, w0, w, vmat, class_inds, n_classes),
+        _vmap_fm_with_class_feature_eval(x, w0, w, vmat, class_inds, n_classes),
         axis=-1,
     )
 
@@ -54,10 +60,6 @@ def _softmax_fm_eval(x, w0, w, vmat, n_classes):
     if jnp.ndim(x) == 2:
         class_inds = jnp.tile(class_inds, (x.shape[0], 1))
     return jax.nn.softmax(
-        jax.vmap(
-            _fm_with_class_feature_eval,
-            in_axes=(None, None, None, None, -1, None),
-            out_axes=-1,
-        )(x, w0, w, vmat, class_inds, n_classes),
+        _vmap_fm_with_class_feature_eval(x, w0, w, vmat, class_inds, n_classes),
         axis=-1,
     )
