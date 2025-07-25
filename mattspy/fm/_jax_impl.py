@@ -15,14 +15,14 @@ def _fm_eval(x, w0, w, vmat):
 
 
 @partial(jax.jit, static_argnames=("n_features", "rank"))
-def _extract_fm_parts(params, n_features, rank):
+def _extract_fm_params(params, n_features, rank):
     w0 = params[0]
     w = params[1 : 1 + n_features]
     vmat = params[1 + n_features :].reshape((n_features, rank))
     return w0, w, vmat
 
 
-def _combine_fm_parts(w0, w, vmat):
+def _combine_fm_params(w0, w, vmat):
     return jnp.concatenate([jnp.atleast_1d(w0), w, vmat.flatten()])
 
 
@@ -44,22 +44,18 @@ _vmap_fm_with_class_feature_eval = jax.jit(
 
 
 @partial(jax.jit, static_argnames=("n_classes",))
-def _log_softmax_fm_eval(x, w0, w, vmat, n_classes):
+def _logits_fm_eval(x, w0, w, vmat, n_classes):
     class_inds = jnp.arange(n_classes, dtype=int)
     if jnp.ndim(x) == 2:
         class_inds = jnp.tile(class_inds, (x.shape[0], 1))
-    return jax.nn.log_softmax(
-        _vmap_fm_with_class_feature_eval(x, w0, w, vmat, class_inds, n_classes),
-        axis=-1,
-    )
+    return _vmap_fm_with_class_feature_eval(x, w0, w, vmat, class_inds, n_classes)
+
+
+@partial(jax.jit, static_argnames=("n_classes",))
+def _log_softmax_fm_eval(x, w0, w, vmat, n_classes):
+    return jax.nn.log_softmax(_logits_fm_eval(x, w0, w, vmat, n_classes), axis=-1)
 
 
 @partial(jax.jit, static_argnames=("n_classes",))
 def _softmax_fm_eval(x, w0, w, vmat, n_classes):
-    class_inds = jnp.arange(n_classes, dtype=int)
-    if jnp.ndim(x) == 2:
-        class_inds = jnp.tile(class_inds, (x.shape[0], 1))
-    return jax.nn.softmax(
-        _vmap_fm_with_class_feature_eval(x, w0, w, vmat, class_inds, n_classes),
-        axis=-1,
-    )
+    return jax.nn.softmax(_logits_fm_eval(x, w0, w, vmat, n_classes), axis=-1)

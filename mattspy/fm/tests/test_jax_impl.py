@@ -6,8 +6,8 @@ import pytest
 from mattspy.fm._jax_impl import (
     _lowrank_twoway_term,
     _fm_eval,
-    _extract_fm_parts,
-    _combine_fm_parts,
+    _extract_fm_params,
+    _combine_fm_params,
     _fm_with_class_feature_eval,
     _log_softmax_fm_eval,
     _softmax_fm_eval,
@@ -117,18 +117,18 @@ def test_fm_eval_flat():
 
 @pytest.mark.parametrize("n_features", [1, 3, 11])
 @pytest.mark.parametrize("rank", [1, 3])
-def test_fm_extract_combine_fm_parts(n_features, rank):
+def test_fm_extract_combine_fm_params(n_features, rank):
     data = _gen_test_data(1, n_features, rank)
     w0 = data["w0"]
     w = data["w"]
     vmat = data["vmat"]
 
-    params = _combine_fm_parts(w0, w, vmat)
+    params = _combine_fm_params(w0, w, vmat)
     np.testing.assert_allclose(params[0], w0)
     np.testing.assert_allclose(params[1 : 1 + n_features], w)
     np.testing.assert_allclose(params[1 + n_features :], vmat.flatten())
 
-    tw0, tw, tvmat = _extract_fm_parts(params, n_features, rank)
+    tw0, tw, tvmat = _extract_fm_params(params, n_features, rank)
     np.testing.assert_allclose(tw0, w0)
     np.testing.assert_allclose(tw, w)
     np.testing.assert_allclose(tvmat, vmat)

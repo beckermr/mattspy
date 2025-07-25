@@ -9,6 +9,7 @@ dependencies:
   - joblib
   - loky
   - numpy
+  - optax
   - scipy
   - pip
   - setuptools>=45
