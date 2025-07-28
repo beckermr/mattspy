@@ -1,12 +1,17 @@
 import numpy as np
 
 import pytest
+from sklearn.utils.estimator_checks import check_estimator
+from sklearn.datasets import load_iris
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import roc_auc_score
 
 from mattspy.fm._jax_impl import (
     _lowrank_twoway_term,
     _fm_eval,
     _extract_fm_params,
     _combine_fm_params,
+    FMClassifier,
 )
 
 
@@ -156,3 +161,65 @@ def test_fm_extract_combine_fm_params(n_features, rank, n_classes):
     np.testing.assert_allclose(tw0, w0)
     np.testing.assert_allclose(tw, w)
     np.testing.assert_allclose(tvmat, vmat)
+
+
+def test_fm_check_estimator():
+    check_estimator(
+        FMClassifier(),
+    )
+
+
+def test_fm_partial_fit():
+    X, y = load_iris(return_X_y=True)
+    X = StandardScaler().fit_transform(X)
+
+    clf = FMClassifier(batch_size=32)
+    clf.partial_fit(X, y)
+    init_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
+    for _ in range(10):
+        clf.partial_fit(X, y)
+
+    final_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
+    assert final_auc > init_auc
+    assert final_auc > 0.90
+
+    assert not clf.converged_
+
+
+def test_fm_partial_fit_classes():
+    X, y = load_iris(return_X_y=True)
+    X = StandardScaler().fit_transform(X)
+
+    clf = FMClassifier(batch_size=32)
+    clf.partial_fit(X[:20], y[:20], classes=np.unique(y))
+    init_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
+    for _ in range(10):
+        clf.partial_fit(X, y)
+
+    final_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
+    assert final_auc > init_auc
+    assert final_auc > 0.90
+
+
+def test_fm_partial_fit_classes_raises():
+    with pytest.raises(ValueError):
+        X, y = load_iris(return_X_y=True)
+        X = StandardScaler().fit_transform(X)
+
+        clf = FMClassifier(batch_size=32)
+        clf.partial_fit(X, y, classes=np.array([0, 3, 4]))
+
+
+def test_fm_output_shapes():
+    X, y = load_iris(return_X_y=True)
+    X = StandardScaler().fit_transform(X)
+
+    clf = FMClassifier()
+    clf.fit(X, y)
+    assert clf.converged_
+    final_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
+    assert final_auc > 0.90
+
+    assert clf.predict_proba(X).shape == (X.shape[0], clf.n_classes_)
+    assert clf.predict_log_proba(X).shape == (X.shape[0], clf.n_classes_)
+    assert clf.predict(X).shape == (X.shape[0],)
