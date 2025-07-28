@@ -5,6 +5,8 @@ from sklearn.utils.estimator_checks import check_estimator
 from sklearn.datasets import load_iris
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import cross_val_predict, KFold
+
 
 from mattspy.fm._jax_impl import (
     _lowrank_twoway_term,
@@ -216,6 +218,7 @@ def test_fm_output_shapes():
 
     clf = FMClassifier()
     clf.fit(X, y)
+    assert np.array_equal(clf.classes_, np.unique(y))
     assert clf.converged_
     final_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
     assert final_auc > 0.90
@@ -223,3 +226,31 @@ def test_fm_output_shapes():
     assert clf.predict_proba(X).shape == (X.shape[0], clf.n_classes_)
     assert clf.predict_log_proba(X).shape == (X.shape[0], clf.n_classes_)
     assert clf.predict(X).shape == (X.shape[0],)
+
+    assert clf.predict_proba(X[:1]).shape == (1, clf.n_classes_)
+    assert clf.predict_log_proba(X[:1]).shape == (1, clf.n_classes_)
+    assert clf.predict(X[:1]).shape == (1,)
+
+    clf.fit(X, (y == y[0]).astype(int))
+    assert np.array_equal(clf.classes_, [0, 1])
+    assert clf.converged_
+    final_auc = roc_auc_score((y == y[0]).astype(int), clf.predict_proba(X)[:, 1])
+    assert final_auc > 0.90
+
+    assert clf.predict_proba(X).shape == (X.shape[0], clf.n_classes_)
+    assert clf.predict_log_proba(X).shape == (X.shape[0], clf.n_classes_)
+    assert clf.predict(X).shape == (X.shape[0],)
+
+    assert clf.predict_proba(X[:1]).shape == (1, clf.n_classes_)
+    assert clf.predict_log_proba(X[:1]).shape == (1, clf.n_classes_)
+    assert clf.predict(X[:1]).shape == (1,)
+
+
+def test_fm_cross_val():
+    X, y = load_iris(return_X_y=True)
+    X = StandardScaler().fit_transform(X)
+    clf = FMClassifier()
+    cv = KFold(n_splits=4, random_state=457, shuffle=True)
+    proba_oos = cross_val_predict(clf, X, y, cv=cv, method="predict_proba")
+    final_auc = roc_auc_score(y, proba_oos, multi_class="ovo")
+    assert final_auc > 0.90
