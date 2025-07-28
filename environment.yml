@@ -10,7 +10,6 @@ dependencies:
   - loky
   - numpy
   - optax
-  - optimistix
   - scipy
   - scikit-learn
   - pip
