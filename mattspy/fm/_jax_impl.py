@@ -351,4 +351,6 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
         X = validate_data(self, X=X, reset=False)
         if not getattr(self, "_is_fit", False):
             raise NotFittedError("FMClassifier must be fit before calling `predict`!")
-        return self.classes_[_call_in_batches_maybe(self, _jax_predict, X)]
+        return self._label_encoder.inverse_transform(
+            _call_in_batches_maybe(self, _jax_predict, X)
+        )
