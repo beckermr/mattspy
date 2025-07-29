@@ -7,7 +7,7 @@ import pytest
 from sklearn.utils.estimator_checks import check_estimator
 from sklearn.datasets import load_iris
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, accuracy_score
 from sklearn.model_selection import cross_val_predict, KFold
 
 
@@ -274,6 +274,12 @@ def test_fm_jax_arrays():
         assert clf.converged_
         final_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
         assert final_auc > 0.90
+        final_auc = roc_auc_score(
+            y, jnp.exp(clf.predict_log_proba(X)), multi_class="ovo"
+        )
+        assert final_auc > 0.90
+        final_acc = accuracy_score(y, clf.predict(X))
+        assert final_acc > 0.90
 
     clf = FMClassifier(batch_size=32, random_state=RANDOM_SEED)
     clf.partial_fit(X, y)

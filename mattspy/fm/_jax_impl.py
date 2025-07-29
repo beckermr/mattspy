@@ -345,7 +345,8 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
         return self
 
     def predict_log_proba(self, X):
-        X = validate_data(self, X=X, reset=False)
+        if not isinstance(X, jnp.ndarray):
+            X = validate_data(self, X=X, reset=False)
         if not getattr(self, "_is_fit", False):
             raise NotFittedError(
                 "FMClassifier must be fit before calling `predict_log_proba`!"
@@ -353,7 +354,8 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
         return _call_in_batches_maybe(self, _jax_log_proba, X)
 
     def predict_proba(self, X):
-        X = validate_data(self, X=X, reset=False)
+        if not isinstance(X, jnp.ndarray):
+            X = validate_data(self, X=X, reset=False)
         if not getattr(self, "_is_fit", False):
             raise NotFittedError(
                 "FMClassifier must be fit before calling `predict_proba`!"
@@ -361,9 +363,12 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
         return _call_in_batches_maybe(self, _jax_proba, X)
 
     def predict(self, X):
-        X = validate_data(self, X=X, reset=False)
+        if not isinstance(X, jnp.ndarray):
+            X = validate_data(self, X=X, reset=False)
         if not getattr(self, "_is_fit", False):
             raise NotFittedError("FMClassifier must be fit before calling `predict`!")
-        return self._label_encoder.inverse_transform(
-            _call_in_batches_maybe(self, _jax_predict, X)
-        )
+
+        retval = _call_in_batches_maybe(self, _jax_predict, X)
+        if hasattr(self, "_label_encoder"):
+            retval = self._label_encoder.inverse_transform(retval)
+        return retval
