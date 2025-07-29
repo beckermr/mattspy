@@ -1,9 +1,9 @@
 import numpy as np
-
+import jax.numpy as jnp
 import pytest
 from sklearn.utils.estimator_checks import check_estimator
 from sklearn.datasets import load_iris
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import cross_val_predict, KFold
 
@@ -15,6 +15,8 @@ from mattspy.fm._jax_impl import (
     _combine_fm_params,
     FMClassifier,
 )
+
+RANDOM_SEED = 42
 
 
 def _gen_test_data(n_samples, n_features, rank, flatten=False, seed=42, n_classes=None):
@@ -167,7 +169,7 @@ def test_fm_extract_combine_fm_params(n_features, rank, n_classes):
 
 def test_fm_check_estimator():
     check_estimator(
-        FMClassifier(),
+        FMClassifier(random_state=RANDOM_SEED),
     )
 
 
@@ -175,7 +177,7 @@ def test_fm_partial_fit():
     X, y = load_iris(return_X_y=True)
     X = StandardScaler().fit_transform(X)
 
-    clf = FMClassifier(batch_size=32)
+    clf = FMClassifier(batch_size=32, random_state=RANDOM_SEED)
     clf.partial_fit(X, y)
     init_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
     for _ in range(10):
@@ -192,7 +194,7 @@ def test_fm_partial_fit_classes():
     X, y = load_iris(return_X_y=True)
     X = StandardScaler().fit_transform(X)
 
-    clf = FMClassifier(batch_size=32)
+    clf = FMClassifier(batch_size=32, random_state=RANDOM_SEED)
     clf.partial_fit(X[:20], y[:20], classes=np.unique(y))
     init_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
     for _ in range(10):
@@ -208,7 +210,7 @@ def test_fm_partial_fit_classes_raises():
         X, y = load_iris(return_X_y=True)
         X = StandardScaler().fit_transform(X)
 
-        clf = FMClassifier(batch_size=32)
+        clf = FMClassifier(batch_size=32, random_state=RANDOM_SEED)
         clf.partial_fit(X, y, classes=np.array([0, 3, 4]))
 
 
@@ -216,7 +218,7 @@ def test_fm_output_shapes():
     X, y = load_iris(return_X_y=True)
     X = StandardScaler().fit_transform(X)
 
-    clf = FMClassifier()
+    clf = FMClassifier(random_state=RANDOM_SEED)
     clf.fit(X, y)
     assert np.array_equal(clf.classes_, np.unique(y))
     assert clf.converged_
@@ -249,8 +251,54 @@ def test_fm_output_shapes():
 def test_fm_cross_val():
     X, y = load_iris(return_X_y=True)
     X = StandardScaler().fit_transform(X)
-    clf = FMClassifier()
+    clf = FMClassifier(random_state=RANDOM_SEED)
     cv = KFold(n_splits=4, random_state=457, shuffle=True)
     proba_oos = cross_val_predict(clf, X, y, cv=cv, method="predict_proba")
     final_auc = roc_auc_score(y, proba_oos, multi_class="ovo")
     assert final_auc > 0.90
+
+
+def test_fm_jax_arrays():
+    X, y = load_iris(return_X_y=True)
+    X = jnp.array(StandardScaler().fit_transform(X))
+    y = jnp.array(LabelEncoder().fit_transform(y))
+
+    for _y in [y, y.astype(float) + 0.1, y.astype(float)]:
+        clf = FMClassifier(rtol=1e-5, atol=1e-5, random_state=RANDOM_SEED)
+        clf.fit(X, _y)
+        assert clf.n_features_in_ == X.shape[1]
+        assert clf.n_classes_ == len(jnp.unique(y))
+        assert clf.converged_
+        final_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
+        assert final_auc > 0.90
+
+    clf = FMClassifier(batch_size=32, random_state=RANDOM_SEED)
+    clf.partial_fit(X, y)
+    assert clf.n_features_in_ == X.shape[1]
+    assert clf.n_classes_ == len(jnp.unique(y))
+    init_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
+    for _ in range(10):
+        clf.partial_fit(X, y)
+    final_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
+    assert final_auc > init_auc
+    assert final_auc > 0.90
+    assert not clf.converged_
+
+    clf = FMClassifier(batch_size=32, random_state=RANDOM_SEED)
+    clf.partial_fit(X[:20], y[:20], classes=jnp.unique(y))
+    assert clf.n_features_in_ == X.shape[1]
+    assert clf.n_classes_ == len(jnp.unique(y))
+    init_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
+    for _ in range(10):
+        clf.partial_fit(X, y)
+    final_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
+    assert final_auc > init_auc
+    assert final_auc > 0.90
+
+    with pytest.raises(ValueError):
+        clf = FMClassifier(rtol=1e-5, atol=1e-5, random_state=RANDOM_SEED)
+        clf.fit(X, y + 1)
+
+    with pytest.raises(ValueError):
+        clf = FMClassifier(rtol=1e-5, atol=1e-5, random_state=RANDOM_SEED)
+        clf.partial_fit(X, y, classes=jnp.unique(y) + 1)

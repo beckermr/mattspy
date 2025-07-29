@@ -122,7 +122,11 @@ def _call_in_batches_maybe(self, func, X):
 
 
 class FMClassifier(ClassifierMixin, BaseEstimator):
-    """A Factorization Machine classifier.
+    r"""A Factorization Machine classifier.
+
+    The FM model for the logits for class c is
+
+        logit_c = w0_c + w_c^T * X + \sum_i \sum_{j=i+1} v_{c,i}^T v_{c,j} x_i x_j
 
     Parameters
     ----------
@@ -226,6 +230,13 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
             self.classes_ = jnp.unique(y)
         self.n_classes_ = len(self.classes_)
         self.n_features_in_ = X.shape[1]
+
+        if not jnp.array_equal(jnp.arange(self.n_classes_), self.classes_):
+            raise ValueError(
+                "For JAX array inputs, the classes must be integers "
+                "from 0 to n_classes_ - 1!"
+            )
+
         return X, y
 
     def partial_fit(self, X, y, classes=None):
@@ -241,6 +252,8 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
         else:
             if not (isinstance(X, jnp.ndarray) and isinstance(y, jnp.ndarray)):
                 X, y = validate_data(self, X=X, y=y, reset=False)
+            else:
+                y = jnp.rint(y).astype(jnp.int32)
 
         if not (isinstance(X, jnp.ndarray) and isinstance(y, jnp.ndarray)):
             y = self._label_encoder.transform(y)
