@@ -5,10 +5,14 @@ dependencies:
   - cloudpickle
   - fitsio
   - frozendict
+  - jax
   - joblib
   - loky
   - numpy
+  - optax
   - scipy
+  - scikit-learn
+  - pandas
   - pip
   - setuptools>=45
   - setuptools_scm>=7
