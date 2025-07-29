@@ -1,3 +1,6 @@
+import pickle
+from io import BytesIO
+
 import numpy as np
 import jax.numpy as jnp
 import pytest
@@ -302,3 +305,49 @@ def test_fm_jax_arrays():
     with pytest.raises(ValueError):
         clf = FMClassifier(rtol=1e-5, atol=1e-5, random_state=RANDOM_SEED)
         clf.partial_fit(X, y, classes=jnp.unique(y) + 1)
+
+
+def test_fm_pickling_jax():
+    X, y = load_iris(return_X_y=True)
+    X = jnp.array(StandardScaler().fit_transform(X))
+    y = jnp.array(LabelEncoder().fit_transform(y))
+    clf = FMClassifier(random_state=RANDOM_SEED)
+    clf.fit(X, y)
+    probs = clf.predict_proba(X)
+    b = BytesIO()
+    pickle.dump(clf, b)
+    clf_pickled = pickle.loads(b.getvalue())
+    probs_pickled = clf_pickled.predict_proba(X)
+    assert jnp.allclose(probs, probs_pickled)
+
+
+def test_fm_pickling():
+    X, y = load_iris(return_X_y=True)
+    X = StandardScaler().fit_transform(X)
+    clf = FMClassifier(random_state=RANDOM_SEED)
+    clf.fit(X, y)
+    probs = clf.predict_proba(X)
+    b = BytesIO()
+    pickle.dump(clf, b)
+    clf_pickled = pickle.loads(b.getvalue())
+    probs_pickled = clf_pickled.predict_proba(X)
+    assert np.allclose(probs, probs_pickled)
+
+
+def test_fm_random_state_handling():
+    X, y = load_iris(return_X_y=True)
+    X = StandardScaler().fit_transform(X)
+    clf = FMClassifier(random_state=RANDOM_SEED)
+    probs = clf.fit(X, y).predict_proba(X)
+    probs_again = clf.fit(X, y).predict_proba(X)
+    assert np.allclose(probs, probs_again)
+
+
+def test_fm_random_state_handling_jax():
+    X, y = load_iris(return_X_y=True)
+    X = jnp.array(StandardScaler().fit_transform(X))
+    y = jnp.array(LabelEncoder().fit_transform(y))
+    clf = FMClassifier(random_state=RANDOM_SEED)
+    probs = clf.fit(X, y).predict_proba(X)
+    probs_again = clf.fit(X, y).predict_proba(X)
+    assert jnp.allclose(probs, probs_again)
