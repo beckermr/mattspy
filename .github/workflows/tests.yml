@@ -9,7 +9,7 @@ on:
 env:
   PY_COLORS: "1"
 
-  concurrency:
+concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
