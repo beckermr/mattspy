@@ -56,6 +56,7 @@ def test_som_scheduled_iris_oneshot():
         n_clusters=len(np.unique(y)),
     )
     clst.fit(X)
+    assert clst.converged_
     ml = _mode_label(y, clst.labels_, clst.n_clusters)
     assert np.array_equal(np.sort(ml), np.arange(clst.n_clusters))
 

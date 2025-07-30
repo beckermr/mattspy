@@ -102,14 +102,14 @@ class ScheduledSOMap(ClusterMixin, BaseEstimator):
     def __init__(
         self,
         n_clusters=16,
-        alpha_min=1e-3,
         alpha_max=1e-1,
-        sigma_min=1e-3,
+        alpha_min=1e-3,
         sigma_max="dbar_10",
+        sigma_min=1e-3,
         random_state=None,
-        atol=1e-6,
-        rtol=1e-6,
-        max_iter=100,
+        atol=1e-3,
+        rtol=1e-3,
+        max_iter=1000,
         backend="jax",
     ):
         self.n_clusters = n_clusters
