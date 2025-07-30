@@ -89,7 +89,7 @@ class SOMap(ClusterMixin, BaseEstimator):
         sigma=1e-2,
         k=0.7,
         random_state=None,
-        max_iter=1000,
+        max_iter=100,
         backend="jax",
     ):
         self.n_clusters = n_clusters
@@ -102,7 +102,10 @@ class SOMap(ClusterMixin, BaseEstimator):
 
     def fit(self, X, y=None):
         self._is_fit = False
-        return self.partial_fit(X)
+        return self._partial_fit(self.max_iter, X)
+
+    def partial_fit(self, X, y=None, xmin=None, xmax=None):
+        return self._partial_fit(1, X)
 
     def _init_numpy(self, X):
         X = validate_data(self, X=X, reset=True)
@@ -112,7 +115,7 @@ class SOMap(ClusterMixin, BaseEstimator):
         self.n_features_in_ = X.shape[1]
         return X
 
-    def partial_fit(self, X, y=None, xmin=None, xmax=None):
+    def _partial_fit(self, n_epochs, X, y=None, xmin=None, xmax=None):
         if not getattr(self, "_is_fit", False):
             self._rng = check_random_state(self.random_state)
             self._jax_rng_key = jax.random.key(
@@ -151,14 +154,11 @@ class SOMap(ClusterMixin, BaseEstimator):
 
         Xs = (X - self._xmin) / (self._xmax - self._xmin)
 
-        if not getattr(self, "is_fit", False):
-            n_epochs = self.max_iter
-        else:
-            n_epochs = 1
-
         dc_bar = self._dc_bar
         inds = jnp.arange(X.shape[0])
         for epoch in range(n_epochs):
+            self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
+            inds = jax.random.permutation(subkey, X.shape[0])
             weights, dc_bar, _ = _jax_update_som_weights(
                 inds,
                 weights,
@@ -173,7 +173,7 @@ class SOMap(ClusterMixin, BaseEstimator):
         self._dc_bar = dc_bar
         self._is_fit = True
         self.labels_ = _jax_predict_som(self.weights_, Xs)
-        self.n_iter_ = epoch
+        self.n_iter_ = epoch + 1
 
         return self
 

@@ -29,12 +29,15 @@ def test_som_iris_oneshot():
         random_state=RANDOM_SEED,
         n_clusters=len(np.unique(y)),
     )
-    rng = np.random.default_rng(seed=42)
-    inds = rng.permutation(X.shape[0])
-    clst.partial_fit(X[inds, :])
+    clst.partial_fit(X)
     for i in range(10):
-        clst.partial_fit(X[inds, :])
+        clst.partial_fit(X)
     ml = _mode_label(y, clst.labels_, clst.n_clusters)
     assert np.array_equal(np.sort(ml), np.arange(clst.n_clusters))
+
+    ml = _mode_label(y, clst.predict(X), clst.n_clusters)
+    assert np.array_equal(np.sort(ml), np.arange(clst.n_clusters))
+
+    clst.fit(X)
     ml = _mode_label(y, clst.predict(X), clst.n_clusters)
     assert np.array_equal(np.sort(ml), np.arange(clst.n_clusters))
