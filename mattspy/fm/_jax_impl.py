@@ -154,7 +154,7 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
         The absolute tolerance for convergence if `batch_size` is None.
     rtol : float, optional
         The relative tolerance for convergence if `batch_size` is None.
-    max_steps : int, optional
+    max_iter : int, optional
         the maximum number of steps to take if `batch_size` is None.
     backend : str, optional
         The computational backend to use. Only "jax" is currently available.
@@ -184,7 +184,7 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
         solver_kwargs=(("learning_rate", 1e-2),),
         atol=1e-4,
         rtol=1e-4,
-        max_steps=1000,
+        max_iter=1000,
         backend="jax",
     ):
         self.rank = rank
@@ -197,7 +197,7 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
         self.solver_kwargs = solver_kwargs
         self.atol = atol
         self.rtol = rtol
-        self.max_steps = max_steps
+        self.max_iter = max_iter
         self.backend = backend
 
     def fit(self, X, y):
@@ -290,9 +290,11 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
                 )
                 updates, opt_state = optimizer.update(grads, opt_state, params)
                 params = optax.apply_updates(params, updates)
+
+            self.n_iter_ = 1
         else:
             new_value = None
-            for i in range(self.max_steps):
+            for i in range(self.max_iter):
                 value = new_value
 
                 if self.solver in ["lbfgs"]:
@@ -337,6 +339,8 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
                     converged = True
                     break
                 params = new_params
+
+            self.n_iter_ = i
 
         self.params_ = params
         self.converged_ = converged
