@@ -95,7 +95,7 @@ class ScheduledSOMap(ClusterMixin, BaseEstimator):
     Attributes
     ----------
     weights_ : array-like
-        An `(n**2, n_features_in)` shaped array of the SOM
+        An `(n_clusters, n_features_in)` shaped array of the SOM
         weight vectors.
     """
 
@@ -260,7 +260,7 @@ class AdaptiveSOMap(ClusterMixin, BaseEstimator):
     Attributes
     ----------
     weights_ : array-like
-        An `(n**2, n_features_in)` shaped array of the SOM
+        An `(n_clusters, n_features_in)` shaped array of the SOM
         weight vectors.
     """
 
