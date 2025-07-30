@@ -124,6 +124,18 @@ class ScheduledSOMap(ClusterMixin, BaseEstimator):
         self.backend = backend
 
     def fit(self, X, y=None):
+        """Fit the SOM to the data `X`.
+
+        Parameters
+        ----------
+        X : array-like
+            An array of shape `(n_samples, n_features)`.
+
+        Returns
+        -------
+        self : ScheduledSOMap
+            The fit estimator.
+        """
         self._is_fit = False
         return self._fit(self.max_iter, X)
 
@@ -216,6 +228,18 @@ class ScheduledSOMap(ClusterMixin, BaseEstimator):
         return self
 
     def predict(self, X):
+        """Compute the SOM best-matching unit index for `X`.
+
+        Parameters
+        ----------
+        X : array-like
+            An array of shape `(n_samples, n_features)`.
+
+        Returns
+        -------
+        labels : array-like
+            An array of the integer indicies of the best-matching unit.
+        """
         if not isinstance(X, jnp.ndarray):
             X = validate_data(self, X=X, reset=False)
         if not getattr(self, "_is_fit", False):
@@ -283,10 +307,40 @@ class AdaptiveSOMap(ClusterMixin, BaseEstimator):
         self.backend = backend
 
     def fit(self, X, y=None):
+        """Fit the SOM to the data `X`.
+
+        Parameters
+        ----------
+        X : array-like
+            An array of shape `(n_samples, n_features)`.
+
+        Returns
+        -------
+        self : ScheduledSOMap
+            The fit estimator.
+        """
         self._is_fit = False
         return self._partial_fit(self.max_iter, X)
 
     def partial_fit(self, X, y=None, xmin=None, xmax=None):
+        """Update the SOM weight vectors (units) given some examples `X`.
+
+        Parameters
+        ----------
+        X : array-like
+            An array of shape `(n_samples, n_features)`.
+        xmin : float, optional
+            If given, the minimum value of X over the entire dataset. If None,
+            use the minimum of `X` from the first time `partial_fit` is called.
+        xmax : float, optional
+            If given, the maximum value of X over the entire dataset. If None,
+            use the maximum of `X` from the first time `partial_fit` is called.
+
+        Returns
+        -------
+        self : ScheduledSOMap
+            The fit estimator.
+        """
         return self._partial_fit(1, X)
 
     def _init_numpy(self, X):
@@ -370,6 +424,18 @@ class AdaptiveSOMap(ClusterMixin, BaseEstimator):
         return self
 
     def predict(self, X):
+        """Compute the SOM best-matching unit index for `X`.
+
+        Parameters
+        ----------
+        X : array-like
+            An array of shape `(n_samples, n_features)`.
+
+        Returns
+        -------
+        labels : array-like
+            An array of the integer indicies of the best-matching unit.
+        """
         if not isinstance(X, jnp.ndarray):
             X = validate_data(self, X=X, reset=False)
         if not getattr(self, "_is_fit", False):
