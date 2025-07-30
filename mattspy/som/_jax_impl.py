@@ -87,7 +87,7 @@ class SOMap(ClusterMixin, BaseEstimator):
         n_clusters=16,
         alpha=0.1,
         sigma=1e-2,
-        k=0.7,
+        k=0.9,
         random_state=None,
         max_iter=100,
         backend="jax",
@@ -185,8 +185,3 @@ class SOMap(ClusterMixin, BaseEstimator):
 
         Xs = (X - self._xmin) / (self._xmax - self._xmin)
         return _jax_predict_som(self.weights_, Xs)
-
-    def score(self, X):
-        bmu = self.predict(X)
-        dx = X - self.weights_[bmu, :]
-        return -jnp.mean(dx**2)
