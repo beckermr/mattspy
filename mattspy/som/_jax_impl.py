@@ -38,6 +38,28 @@ def _jax_update_som_weights(inds, weights, dc_bar, X, alpha0, sigma02, k):
 
 
 @jax.jit
+def _jax_update_som_weights_schedule(inds, weights, X, alpha, sigma2):
+    def f(carry, ind):
+        _weights = carry
+
+        x = X[ind, :]
+
+        dc2 = jnp.sum((_weights - x) ** 2, axis=1)
+        bmu_ind = jnp.argmin(dc2, axis=0)
+        bmu = _weights[bmu_ind, :]
+
+        rci2 = jnp.sum((_weights - bmu) ** 2, axis=1)
+        hci = alpha * jnp.exp(-rci2 / sigma2)
+        _weights = _weights + hci.reshape(-1, 1) * (x - _weights)
+
+        return _weights, bmu_ind
+
+    init_carry = weights
+    final_weights, bmu_inds = jax.lax.scan(f, init_carry, xs=inds)
+    return final_weights, bmu_inds
+
+
+@jax.jit
 def _jax_predict_som(weights, X):
     return jnp.argmin(
         jnp.sum((weights[jnp.newaxis, :, :] - X[:, jnp.newaxis, :]) ** 2, axis=-1),
@@ -45,8 +67,166 @@ def _jax_predict_som(weights, X):
     )
 
 
-class SOMap(ClusterMixin, BaseEstimator):
-    """A SOM implementation.
+class ScheduledSOMap(ClusterMixin, BaseEstimator):
+    """A SOM implementation with a schedule for alpha and sigma.
+
+    Parameters
+    ----------
+    n_clusters : int, optional
+        The overall number of SOM weight vectors.
+    alpha_min, alpha_max : float, optional
+        The min and max of the learning rate alpha.
+    sigma_min, sigma_max : float, str, optional
+        The min and max of the neighborhood function size. If `sigma_max`
+        is a string 'dbar_10' then the sigma_max is set to one tenth of
+        the mean interweight spacing of a uniform point set.
+    random_state : int, numpy RNG instance, or None
+        The RNG to use for parameter initialization.
+    atol : float, optional
+        The absolute tolerance for convergence of the weight vectors.
+    rtol : float, optional
+        The relative tolerance for convergence of the weight vectors.
+    max_iter : int, optional
+        The number of times to iterate through the entire data
+        set when fitting via `fit`.
+    backend : str, optional
+        The computational backend to use. Only "jax" is currently available.
+
+    Attributes
+    ----------
+    weights_ : array-like
+        An `(n**2, n_features_in)` shaped array of the SOM
+        weight vectors.
+    """
+
+    def __init__(
+        self,
+        n_clusters=16,
+        alpha_min=1e-3,
+        alpha_max=1e-1,
+        sigma_min=1e-3,
+        sigma_max="dbar_10",
+        random_state=None,
+        atol=1e-6,
+        rtol=1e-6,
+        max_iter=100,
+        backend="jax",
+    ):
+        self.n_clusters = n_clusters
+        self.alpha_min = alpha_min
+        self.alpha_max = alpha_max
+        self.sigma_min = sigma_min
+        self.sigma_max = sigma_max
+        self.random_state = random_state
+        self.atol = atol
+        self.rtol = rtol
+        self.max_iter = max_iter
+        self.backend = backend
+
+    def fit(self, X, y=None):
+        self._is_fit = False
+        return self._fit(self.max_iter, X)
+
+    def _init_numpy(self, X):
+        X = validate_data(self, X=X, reset=True)
+        return X
+
+    def _init_jax(self, X):
+        self.n_features_in_ = X.shape[1]
+        return X
+
+    def _fit(self, n_epochs, X, y=None, xmin=None, xmax=None):
+        if not getattr(self, "_is_fit", False):
+            self._rng = check_random_state(self.random_state)
+            self._jax_rng_key = jax.random.key(
+                self._rng.randint(low=1, high=int(2**31))
+            )
+            if not isinstance(X, jnp.ndarray):
+                X = self._init_numpy(X)
+            else:
+                X = self._init_jax(X)
+        else:
+            if not isinstance(X, jnp.ndarray):
+                X = validate_data(self, X=X, reset=False)
+
+        if not isinstance(X, jnp.ndarray):
+            X = jnp.array(X)
+
+        if not getattr(self, "_is_fit", False):
+            self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
+            weights = jax.random.uniform(
+                subkey,
+                shape=(self.n_clusters, X.shape[1]),
+            )
+
+            if xmin is None:
+                self._xmin = jnp.nanmin(X, axis=0)
+            else:
+                self._xmin = xmin
+            if xmax is None:
+                self._xmax = jnp.nanmax(X, axis=0)
+            else:
+                self._xmax = xmax
+        else:
+            weights = self.weights_.copy()
+
+        Xs = (X - self._xmin) / (self._xmax - self._xmin)
+
+        alpha = self.alpha_max
+        dalpha = (self.alpha_max - self.alpha_min) / n_epochs
+        if isinstance(self.sigma_max, str):
+            if self.sigma_max == "dbar_10":
+                sigma_max = jnp.power(1 / self.n_clusters, 1.0 / X.shape[1]) / 10.0
+            else:
+                raise ValueError(
+                    f"Invalid value encountered for `sigma_max`! Got {self.sigma_max}!"
+                )
+        else:
+            sigma_max = self.sigma_max
+        sigma = sigma_max
+        dsigma = (sigma_max - self.sigma_min) / n_epochs
+        converged = False
+        for epoch in range(n_epochs):
+            self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
+            inds = jax.random.permutation(subkey, X.shape[0])
+            old_weights = weights
+            weights, _ = _jax_update_som_weights_schedule(
+                inds,
+                weights,
+                Xs,
+                alpha,
+                sigma * sigma,
+            )
+
+            alpha -= dalpha
+            sigma -= dsigma
+
+            if epoch > 1 and jnp.allclose(
+                weights, old_weights, rtol=self.rtol, atol=self.atol
+            ):
+                converged = True
+                break
+
+        self.weights_ = weights
+        self._is_fit = True
+        self.labels_ = _jax_predict_som(self.weights_, Xs)
+        self.n_iter_ = epoch + 1
+        self.converged_ = converged
+
+        return self
+
+    def predict(self, X):
+        if not isinstance(X, jnp.ndarray):
+            X = validate_data(self, X=X, reset=False)
+        if not getattr(self, "_is_fit", False):
+            raise NotFittedError("FMClassifier must be fit before calling `predict`!")
+
+        Xs = (X - self._xmin) / (self._xmax - self._xmin)
+        return _jax_predict_som(self.weights_, Xs)
+
+
+class AdaptiveSOMap(ClusterMixin, BaseEstimator):
+    """An Adaptive SOM implementation.
 
     This SOM implementation uses the technique from
 
@@ -61,9 +241,11 @@ class SOMap(ClusterMixin, BaseEstimator):
     alpha : float, optional
         The overall scaling of the neighborhood weight function
         amplitude.
-    sigma : float, optional
+    sigma : float, str, optional
         The overall scaling of the neighborhood weight function
-        size.
+        size. If `sigma` is a string 'dbar_10' then the sigma_max
+        is set to one tenth of the mean interweight spacing of a
+        uniform point set.
     k : float, optional
         The weighting factor for the exponential time average
         of the adaptive neighborhood weight function width.
@@ -86,7 +268,7 @@ class SOMap(ClusterMixin, BaseEstimator):
         self,
         n_clusters=16,
         alpha=0.1,
-        sigma=1e-2,
+        sigma="dbar_10",
         k=0.9,
         random_state=None,
         max_iter=100,
@@ -126,7 +308,17 @@ class SOMap(ClusterMixin, BaseEstimator):
             else:
                 X = self._init_jax(X)
 
-            self._sigma2 = self.sigma**2
+            if isinstance(self.sigma, str):
+                if self.sigma == "dbar_10":
+                    sigma = jnp.power(1 / self.n_clusters, 1.0 / X.shape[1]) / 10.0
+                else:
+                    raise ValueError(
+                        f"Invalid value encountered for `sigma`! Got {self.sigma}!"
+                    )
+            else:
+                sigma = self.sigma
+
+            self._sigma2 = sigma**2
             self._dc_bar = jnp.sqrt(self.n_features_in_)
         else:
             if not isinstance(X, jnp.ndarray):
@@ -138,7 +330,8 @@ class SOMap(ClusterMixin, BaseEstimator):
         if not getattr(self, "_is_fit", False):
             self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
             weights = jax.random.uniform(
-                subkey, minval=0, maxval=1, shape=(self.n_clusters, self.n_features_in_)
+                subkey,
+                shape=(self.n_clusters, X.shape[1]),
             )
 
             if xmin is None:
@@ -155,7 +348,6 @@ class SOMap(ClusterMixin, BaseEstimator):
         Xs = (X - self._xmin) / (self._xmax - self._xmin)
 
         dc_bar = self._dc_bar
-        inds = jnp.arange(X.shape[0])
         for epoch in range(n_epochs):
             self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
             inds = jax.random.permutation(subkey, X.shape[0])

@@ -1,1 +1,1 @@
-from ._jax_impl import SOMap  # noqa: F401
+from ._jax_impl import AdaptiveSOMap, ScheduledSOMap  # noqa: F401
