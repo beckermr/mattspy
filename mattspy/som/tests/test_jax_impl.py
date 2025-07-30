@@ -3,9 +3,7 @@ import numpy as np
 from sklearn.utils.estimator_checks import check_estimator
 from sklearn.datasets import load_iris
 
-from mattspy.som._jax_impl import (
-    SOMap
-)
+from mattspy.som._jax_impl import SOMap
 
 RANDOM_SEED = 42
 
@@ -16,11 +14,12 @@ def test_som_check_estimator():
     )
 
 
-def _mode_label(y, clst):
+def _mode_label(y, labels, n_clusters):
     from scipy.stats import mode
+
     vals = []
-    for k in range(clst.n_clusters):
-        vals.append((mode(y[clst.labels_ == k])[0]))
+    for k in range(n_clusters):
+        vals.append((mode(y[labels == k])[0]))
     return vals
 
 
@@ -35,5 +34,7 @@ def test_som_iris_oneshot():
     clst.partial_fit(X[inds, :])
     for i in range(10):
         clst.partial_fit(X[inds, :])
-    ml = _mode_label(y, clst)
+    ml = _mode_label(y, clst.labels_, clst.n_clusters)
+    assert np.array_equal(np.sort(ml), np.arange(clst.n_clusters))
+    ml = _mode_label(y, clst.predict(X), clst.n_clusters)
     assert np.array_equal(np.sort(ml), np.arange(clst.n_clusters))

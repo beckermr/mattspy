@@ -9,13 +9,12 @@ from sklearn.exceptions import NotFittedError
 
 @jax.jit
 def _jax_update_som_weights(inds, weights, dc_bar, X, alpha0, sigma02, k):
-
     def f(carry, ind):
         _weights, _dc_bar = carry
 
         x = X[ind, :]
 
-        dc2 = jnp.sum((_weights - x)**2, axis=1)
+        dc2 = jnp.sum((_weights - x) ** 2, axis=1)
         bmu_ind = jnp.argmin(dc2, axis=0)
         bmu = _weights[bmu_ind, :]
         dc2_bmu = dc2[bmu_ind]
@@ -24,7 +23,7 @@ def _jax_update_som_weights(inds, weights, dc_bar, X, alpha0, sigma02, k):
 
         alpha = alpha0 * dc_bmu_dc_bar
         sigma2 = sigma02 * dc_bmu_dc_bar**2
-        rci2 = jnp.sum((_weights - bmu)**2, axis=1)
+        rci2 = jnp.sum((_weights - bmu) ** 2, axis=1)
         hci = alpha * jnp.exp(-rci2 / sigma2)
         _weights = _weights + hci.reshape(-1, 1) * (x - _weights)
 
@@ -33,9 +32,7 @@ def _jax_update_som_weights(inds, weights, dc_bar, X, alpha0, sigma02, k):
         return (_weights, _dc_bar), bmu_ind
 
     init_carry = (weights, dc_bar)
-    final_carry, bmu_inds = jax.lax.scan(
-        f, init_carry, xs=inds
-    )
+    final_carry, bmu_inds = jax.lax.scan(f, init_carry, xs=inds)
     final_weights, final_dc_bar = final_carry
     return final_weights, final_dc_bar, bmu_inds
 
@@ -43,7 +40,7 @@ def _jax_update_som_weights(inds, weights, dc_bar, X, alpha0, sigma02, k):
 @jax.jit
 def _jax_predict_som(weights, X):
     return jnp.argmin(
-        jnp.sum((weights[jnp.newaxis, :, :] - X[:, jnp.newaxis, :])**2, axis=-1),
+        jnp.sum((weights[jnp.newaxis, :, :] - X[:, jnp.newaxis, :]) ** 2, axis=-1),
         axis=1,
     )
 
@@ -138,10 +135,7 @@ class SOMap(ClusterMixin, BaseEstimator):
         if not getattr(self, "_is_fit", False):
             self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
             weights = jax.random.uniform(
-                subkey,
-                minval=0,
-                maxval=1,
-                shape=(self.n_clusters, self.n_features_in_)
+                subkey, minval=0, maxval=1, shape=(self.n_clusters, self.n_features_in_)
             )
 
             if xmin is None:
@@ -166,7 +160,13 @@ class SOMap(ClusterMixin, BaseEstimator):
         inds = jnp.arange(X.shape[0])
         for epoch in range(n_epochs):
             weights, dc_bar, _ = _jax_update_som_weights(
-                inds, weights, dc_bar, Xs, self.alpha, self._sigma2, self.k,
+                inds,
+                weights,
+                dc_bar,
+                Xs,
+                self.alpha,
+                self._sigma2,
+                self.k,
             )
 
         self.weights_ = weights
