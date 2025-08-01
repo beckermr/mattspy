@@ -84,6 +84,10 @@ class SOMap(ClusterMixin, BaseEstimator):
     weight_positions_ : array-like
         An `(n_clusters, 2)` shaped array holding the 2d positions
         of the weight units in the SOM space.
+    n_iter_ : int
+        The number of iterations the estimator has been run.
+    labels_ : array-like
+        The labels of the last dataset used to fit the estimator.
     """
 
     def __init__(
@@ -217,7 +221,6 @@ class SOMap(ClusterMixin, BaseEstimator):
             )
             if self._dc_bar == 0:
                 self._dc_bar = 1.0
-            print(self._dc_bar)
 
             n_grid = int(jnp.ceil(jnp.sqrt(self.n_clusters)))
             pos = jnp.linspace(0, 1, n_grid)
@@ -239,6 +242,8 @@ class SOMap(ClusterMixin, BaseEstimator):
 
             self._sigma = self.sigma * sigma_fac
             self._alpha = self.alpha
+
+            self.n_iter_ = 0
         else:
             if not isinstance(X, jnp.ndarray):
                 X = validate_data(self, X=X, reset=False)
@@ -267,7 +272,7 @@ class SOMap(ClusterMixin, BaseEstimator):
         self._dc_bar = dc_bar
         self._is_fit = True
         self.labels_ = _jax_predict_som(self.weights_, X)
-        self.n_iter_ = epoch + 1
+        self.n_iter_ += epoch + 1
 
         return self
 
