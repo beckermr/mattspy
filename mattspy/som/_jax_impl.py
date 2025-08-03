@@ -310,6 +310,9 @@ class SOMap(ClusterMixin, BaseEstimator):
         loss to SOMs. See Ritter et al. (1992,
         "Neural Computation and Self-Organizing Maps: an Introduction").
 
+        A higher score (i.e., lower extended distortion) indicates a better
+        SOM.
+
         Parameters
         ----------
         X : array-like
@@ -318,7 +321,7 @@ class SOMap(ClusterMixin, BaseEstimator):
         Returns
         -------
         neg_ext_dist : float
-            The negative of the extended distortion
+            The negative of the extended distortion.
         """
         if not isinstance(X, jnp.ndarray):
             X = validate_data(self, X=X, reset=False)
