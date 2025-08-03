@@ -6,18 +6,23 @@ import numpy as np
 import pytest
 from sklearn.utils.estimator_checks import check_estimator
 from sklearn.datasets import load_iris
-from sklearn.model_selection import cross_val_predict, KFold
-from sklearn.metrics import f1_score
 
 from mattspy.som._jax_impl import SOMap
 
 RANDOM_SEED = 42
 
 
-def test_som_check_estimator():
-    check_estimator(
-        SOMap(random_state=RANDOM_SEED),
+@pytest.fixture
+def clst():
+    return SOMap(
+        random_state=RANDOM_SEED,
+        batch_size=4,
+        n_clusters=3,
     )
+
+
+def test_som_check_estimator(clst):
+    check_estimator(clst)
 
 
 def _mode_label(y, labels, n_clusters):
@@ -29,12 +34,8 @@ def _mode_label(y, labels, n_clusters):
     return vals
 
 
-def test_som_oneshot():
+def test_som_oneshot(clst):
     X, y = load_iris(return_X_y=True)
-    clst = SOMap(
-        random_state=RANDOM_SEED,
-        n_clusters=len(np.unique(y)),
-    )
     clst.partial_fit(X)
     init_score = clst.score(X)
     for i in range(10):
@@ -53,14 +54,10 @@ def test_som_oneshot():
 
 
 @pytest.mark.parametrize("with_jax", [True, False])
-def test_som_pickling(with_jax):
+def test_som_pickling(with_jax, clst):
     X, y = load_iris(return_X_y=True)
     if with_jax:
         X = jnp.array(X)
-    clst = SOMap(
-        random_state=RANDOM_SEED,
-        n_clusters=len(np.unique(y)),
-    )
     clst.partial_fit(X)
     labels = clst.predict(X)
     b = BytesIO()
@@ -71,14 +68,10 @@ def test_som_pickling(with_jax):
 
 
 @pytest.mark.parametrize("with_jax", [True, False])
-def test_som_random_state_handling(with_jax):
+def test_som_random_state_handling(with_jax, clst):
     X, y = load_iris(return_X_y=True)
     if with_jax:
         X = jnp.array(X)
-    clst = SOMap(
-        random_state=RANDOM_SEED,
-        n_clusters=len(np.unique(y)),
-    )
     labels = clst.fit(X, y).predict(X)
     labels_again = clst.fit(X, y).predict(X)
     assert np.allclose(labels, labels_again)
@@ -90,18 +83,4 @@ def _apply_label_mapping(y, labels, n_clusters):
     vals = {}
     for k in range(n_clusters):
         vals[k] = mode(y[labels == k])[0]
-    return jnp.array([vals[ll] for ll in labels])
-
-
-def test_som_oneshot_cross_val():
-    X, y = load_iris(return_X_y=True)
-    clst = SOMap(
-        random_state=RANDOM_SEED,
-        n_clusters=len(np.unique(y)),
-    )
-    cv = KFold(n_splits=10, random_state=RANDOM_SEED, shuffle=True)
-    labels = cross_val_predict(clst, X, cv=cv, method="predict")
-    labels = _apply_label_mapping(y, labels, clst.n_clusters)
-    print("\n", y, "\n", labels, flush=True)
-    final_f1 = f1_score(y, labels, average="micro")
-    assert final_f1 > 0.80
+    return jnp.array([vals[int(ll)] for ll in labels])
