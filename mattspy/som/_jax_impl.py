@@ -26,42 +26,67 @@ def _jax_update_som_weights_minibatch(weights, n_seen, wpos, X, sigma):
         (wpos[:, jnp.newaxis, :] - wpos[jnp.newaxis, bmu_inds, :]) ** 2, axis=-1
     )
     hci = jnp.exp(-0.5 * rci2 / sigma / sigma)
-    # jax.debug.print("rci2 shape: {}\n", rci2.shape)
     # shape of hci_tot is k
     hci_tot = jnp.sum(hci, axis=-1)
-    # jax.debug.print("hci_tot shape: {}\n", hci_tot.shape)
     n_seen = n_seen + hci_tot
     eta = 1.0 / n_seen
     # shape of kern is k,n,d
     kern = hci[:, :, jnp.newaxis] * (X[jnp.newaxis, :, :] - weights[:, jnp.newaxis, :])
-    # jax.debug.print("kern shape: {}\n", kern.shape)
+    # weights have shape k,d w/ sum over kern on axis 1 which has dim n
     weights = weights + (eta.reshape(-1, 1) * jnp.sum(kern, axis=1))
     return weights, n_seen, bmu_inds
 
 
+@jax.jit
+def _jax_compute_extended_distortion(weights, wpos, X, sigma):
+    bmu_inds = jnp.argmin(
+        jnp.sum((weights[jnp.newaxis, :, :] - X[:, jnp.newaxis, :]) ** 2, axis=-1),
+        axis=1,
+    )
+    # shape of rci2 and hci is k,n
+    rci2 = jnp.sum(
+        (wpos[:, jnp.newaxis, :] - wpos[jnp.newaxis, bmu_inds, :]) ** 2, axis=-1
+    )
+    hci = jnp.exp(-0.5 * rci2 / sigma / sigma)
+    # shape of dx is k,n,d
+    dx = X[jnp.newaxis, :, :] - weights[:, jnp.newaxis, :]
+    # shape of dx2 is k,n
+    dx2 = jnp.sum(dx * dx, axis=-1)
+    return jnp.sum(hci * dx2) / 2.0 / X.shape[0]
+
+
 class SOMap(ClusterMixin, BaseEstimator):
-    """A mini-batch SOM implementation.
+    """A mini-batch Self-organazing Map (SOM) implementation.
+
+    This SOM implementation fits the data through a mini-batch technique.
+    The mini-batch technique is based on extending the adaptive mini-batch
+    K-means algorithm from Sculley (2010, "Web-Scale K-Means Clustering")
+    to SOMs using gradients of the Extended Distortion (Ritter et al.,
+    1992, "Neural Computation and Self-Organizing Maps: an Introduction").
+    Unlike Sculley (2010), this implementation does the gradient descent update
+    in a purely vectorized fashion for better performance when implementated
+    in JAX.
 
     Parameters
     ----------
     n_clusters : int, optional
-        The overall number of SOM weight vectors.
+        The overall number of SOM units.
     sigma : float, optional
-        The neighborhood weight function
-        size in units such that `sigma=1` corresponds to SOM cells
-        that are adjacent on the underlying 2D SOM cell grid.
+        The neighborhood weight function size in units such that
+        `sigma=1` corresponds to SOM units that are adjacent on the
+        underlying 2D SOM unit grid.
     random_state : int, numpy RNG instance, or None
-        The RNG to use for parameter initialization.
+        The RNG to use for unit weight vector initialization.
     batch_size : int, optional
-        The number of examples to use when fitting the estimator
-        and making predictions.
+        The number of examples to use when fitting the SOM and labeling
+        examples.
     max_iter : int, optional
         The maximum number of times to iterate through the entire data
         set when fitting via `fit`.
     atol : float, optional
-        The absolute tolerance for convergence in the SOM weight vectors.
+        The absolute tolerance for convergence in the SOM unit weight vectors.
     rtol : float, optional
-        The relative tolerance for convergence in the SOM weight vectors.
+        The relative tolerance for convergence in the SOM unit weight vectors.
     backend : str, optional
         The computational backend to use. Only "jax" is currently available.
 
@@ -69,18 +94,18 @@ class SOMap(ClusterMixin, BaseEstimator):
     ----------
     weights_ : array-like
         An `(n_clusters, n_features_in)` shaped array of the SOM
-        weight vectors.
+        unit weight vectors.
     weight_positions_ : array-like
         An `(n_clusters, 2)` shaped array holding the 2d positions
-        of the weight units in the SOM space.
+        of the SOM units.
     n_iter_ : int
         The number of iterations the estimator has been run.
     labels_ : array-like
         The labels of the last dataset used to fit the estimator.
     n_seen_ : array-like
-        The effective number of examples seen per cluster.
+        The effective number of examples seen per SOM unit.
     n_weight_grid_ : int
-        The dimension of the 2D SOM weight grid.
+        The dimension of the 2D SOM unit grid.
     converged_ : bool
         Set to True if the fit converged. False otherwise.
     """
@@ -277,3 +302,38 @@ class SOMap(ClusterMixin, BaseEstimator):
             Xb = X[start:end, :]
             vals.append(_jax_predict_som(self.weights_, Xb))
         return jnp.concatenate(vals, axis=0)
+
+    def score(self, X, y=None):
+        """Compute the negative of the extended distortion.
+
+        The extended distortion is the generalization of the K-means
+        loss to SOMs. See Ritter et al. (1992,
+        "Neural Computation and Self-Organizing Maps: an Introduction").
+
+        Parameters
+        ----------
+        X : array-like
+            An array of shape `(n_samples, n_features)`.
+
+        Returns
+        -------
+        neg_ext_dist : float
+            The negative of the extended distortion
+        """
+        if not isinstance(X, jnp.ndarray):
+            X = validate_data(self, X=X, reset=False)
+            X = jnp.array(X)
+        if not getattr(self, "_is_fit", False):
+            raise NotFittedError("MiniBatchSOMap must be fit before calling `predict`!")
+
+        val = 0.0
+        for start in range(0, X.shape[0], self.batch_size):
+            end = min(start + self.batch_size, X.shape[0])
+            Xb = X[start:end, :]
+            val = val + (
+                _jax_compute_extended_distortion(
+                    self.weights_, self.weight_positions_, Xb, self._sigma
+                )
+                * Xb.shape[0]
+            )
+        return -val / X.shape[0]

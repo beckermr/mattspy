@@ -36,10 +36,13 @@ def test_som_oneshot():
         n_clusters=len(np.unique(y)),
     )
     clst.partial_fit(X)
+    init_score = clst.score(X)
     for i in range(10):
         clst.partial_fit(X)
+    final_score = clst.score(X)
     ml = _mode_label(y, clst.labels_, clst.n_clusters)
     assert np.array_equal(np.sort(ml), np.arange(clst.n_clusters))
+    assert final_score > init_score
 
     ml = _mode_label(y, clst.predict(X), clst.n_clusters)
     assert np.array_equal(np.sort(ml), np.arange(clst.n_clusters))
