@@ -147,7 +147,7 @@ class SOMap(ClusterMixin, BaseEstimator):
         return self._partial_fit(self.max_iter, X)
 
     def partial_fit(self, X, y=None):
-        """Update the SOM weight vectors (units) given some examples `X`.
+        """Update the SOM unit weight vectors given some examples `X`.
 
         Parameters
         ----------
