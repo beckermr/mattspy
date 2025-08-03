@@ -98,8 +98,11 @@ def test_som_oneshot_cross_val():
     clst = SOMap(
         random_state=RANDOM_SEED,
         n_clusters=len(np.unique(y)),
+        atol=1e-6,
+        rtol=1e-6,
+        max_iter=1000,
     )
-    cv = KFold(n_splits=4, random_state=457, shuffle=True)
+    cv = KFold(n_splits=4, random_state=RANDOM_SEED, shuffle=True)
     labels = cross_val_predict(clst, X, cv=cv, method="predict")
     labels = _apply_label_mapping(y, labels, clst.n_clusters)
     final_f1 = f1_score(y, labels, average="micro")
