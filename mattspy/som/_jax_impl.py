@@ -21,11 +21,13 @@ def _jax_update_som_weights_minibatch(weights, n_seen, wpos, X, sigma):
         jnp.sum((weights[jnp.newaxis, :, :] - X[:, jnp.newaxis, :]) ** 2, axis=-1),
         axis=1,
     )
-    # shape of rci2 and hci is k,n
+    # shape of rci2 is k,n
     rci2 = jnp.sum(
         (wpos[:, jnp.newaxis, :] - wpos[jnp.newaxis, bmu_inds, :]) ** 2, axis=-1
     )
-    hci = jnp.exp(-0.5 * rci2 / sigma / sigma)
+    sigma2 = sigma * sigma
+    # hci has shape k,n
+    hci = jnp.exp(-rci2 / sigma2)
     # shape of hci_tot is k
     hci_tot = jnp.sum(hci, axis=-1)
     n_seen = n_seen + hci_tot
@@ -71,10 +73,10 @@ class SOMap(ClusterMixin, BaseEstimator):
     ----------
     n_clusters : int, optional
         The overall number of SOM units.
-    sigma : float, optional
-        The neighborhood weight function size in units such that
-        `sigma=1` corresponds to SOM units that are adjacent on the
-        underlying 2D SOM unit grid.
+    sigma_frac : float, optional
+        The neighborhood weight function size in fractions of the full 2D
+        SOM grid size. A value of 0.05 indicates that the neighborhood
+        weight function has a Gaussian width of 5% of the SOM grid.
     random_state : int, numpy RNG instance, or None
         The RNG to use for unit weight vector initialization.
     batch_size : int, optional
@@ -113,7 +115,7 @@ class SOMap(ClusterMixin, BaseEstimator):
     def __init__(
         self,
         n_clusters=16,
-        sigma=1,
+        sigma_frac=0.1,
         random_state=None,
         batch_size=128,
         max_iter=100,
@@ -122,7 +124,7 @@ class SOMap(ClusterMixin, BaseEstimator):
         backend="jax",
     ):
         self.n_clusters = n_clusters
-        self.sigma = sigma
+        self.sigma_frac = sigma_frac
         self.random_state = random_state
         self.max_iter = max_iter
         self.rtol = rtol
@@ -174,7 +176,6 @@ class SOMap(ClusterMixin, BaseEstimator):
             self.n_seen_ = jnp.zeros(self.n_clusters)
             self.n_weight_grid_ = int(jnp.ceil(jnp.sqrt(self.n_clusters)))
             self.n_iter_ = 0
-            self._sigma = self.sigma / self.n_weight_grid_
 
             # rng init
             self._rng = check_random_state(self.random_state)
@@ -259,7 +260,7 @@ class SOMap(ClusterMixin, BaseEstimator):
                     self.n_seen_,
                     self.weight_positions_,
                     Xb,
-                    self._sigma,
+                    self.sigma_frac,
                 )
                 self.weights_ = _weights
                 self.n_seen_ = _n_seen
@@ -335,7 +336,7 @@ class SOMap(ClusterMixin, BaseEstimator):
             Xb = X[start:end, :]
             val = val + (
                 _jax_compute_extended_distortion(
-                    self.weights_, self.weight_positions_, Xb, self._sigma
+                    self.weights_, self.weight_positions_, Xb, self.sigma_frac
                 )
                 * Xb.shape[0]
             )
