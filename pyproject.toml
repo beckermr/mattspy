@@ -15,6 +15,19 @@ description = "Matt's python utils"
 dynamic = ["version"]
 license = {file = "LICENSE"}
 readme = "README.md"
+dependencies = [
+  "cloudpickle",
+  "fitsio",
+  "frozendict",
+  "jax",
+  "joblib",
+  "loky",
+  "numpy",
+  "optax",
+  "scipy",
+  "scikit-learn",
+  "pandas",
+]
 
 [project.urls]
 home = "https://github.com/beckermr/mattspy"
