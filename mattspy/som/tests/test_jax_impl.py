@@ -19,7 +19,7 @@ def clst():
         batch_size=4,
         n_clusters=3,
         sigma_frac=0.75,
-        max_iter=200,
+        max_iter=400,
     )
 
 
