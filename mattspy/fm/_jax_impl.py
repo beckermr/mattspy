@@ -149,7 +149,7 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
     solver : str, optional
         The solver the use from the `optax` package.
     solver_kwargs : tuple of key-value pairs, optional
-        An optional dictionary of keyword arguments to pass to the solver.
+        An optional tuple of tuples of keyword arguments to pass to the solver.
     atol : float, optional
         The absolute tolerance for convergence if `batch_size` is None.
     rtol : float, optional

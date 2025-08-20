@@ -1,5 +1,6 @@
 import jax
 from jax import numpy as jnp
+import optax
 
 from sklearn.base import BaseEstimator, ClusterMixin
 from sklearn.utils import check_random_state
@@ -57,6 +58,11 @@ def _jax_compute_extended_distortion(weights, wpos, X, sigma):
     return jnp.sum(hci * dx2) / 2.0 / X.shape[0]
 
 
+_grad_jax_compute_extended_distortion = jax.jit(
+    jax.grad(_jax_compute_extended_distortion)
+)
+
+
 class SOMap(ClusterMixin, BaseEstimator):
     """A mini-batch Self-organazing Map (SOM) implementation.
 
@@ -82,6 +88,11 @@ class SOMap(ClusterMixin, BaseEstimator):
     batch_size : int, optional
         The number of examples to use when fitting the SOM and labeling
         examples.
+    solver : str, optional
+        The solver the use from the `optax` package. If set to "online", then
+        an online technique adapted from Sculley (2010) is used.
+    solver_kwargs : tuple of key-value pairs, optional
+        An optional tuple of tuples of keyword arguments to pass to the solver.
     max_iter : int, optional
         The maximum number of times to iterate through the entire data
         set when fitting via `fit`.
@@ -105,7 +116,8 @@ class SOMap(ClusterMixin, BaseEstimator):
     labels_ : array-like
         The labels of the last dataset used to fit the estimator.
     n_seen_ : array-like
-        The effective number of examples seen per SOM unit.
+        The effective number of examples seen per SOM unit. Only set if
+        `solver` is 'online'.
     n_weight_grid_ : int
         The dimension of the 2D SOM unit grid.
     converged_ : bool
@@ -118,7 +130,9 @@ class SOMap(ClusterMixin, BaseEstimator):
         sigma_frac=0.1,
         random_state=None,
         batch_size=128,
-        max_iter=100,
+        solver="adam",
+        solver_kwargs=(("learning_rate", 1e-3),),
+        max_iter=200,
         rtol=1e-4,
         atol=1e-4,
         backend="jax",
@@ -131,6 +145,8 @@ class SOMap(ClusterMixin, BaseEstimator):
         self.atol = atol
         self.backend = backend
         self.batch_size = batch_size
+        self.solver = solver
+        self.solver_kwargs = solver_kwargs
 
     def fit(self, X, y=None):
         """Fit the SOM to the data `X`.
@@ -142,7 +158,7 @@ class SOMap(ClusterMixin, BaseEstimator):
 
         Returns
         -------
-        self : ScheduledSOMap
+        self : SOMap
             The fit estimator.
         """
         self._is_fit = False
@@ -245,25 +261,50 @@ class SOMap(ClusterMixin, BaseEstimator):
                 X = validate_data(self, X=X, reset=False)
                 X = jnp.array(X)
 
+        if self.solver != "online":
+            solver_kwargs = {k: v for k, v in (self.solver_kwargs or tuple())}
+            optimizer = getattr(optax, self.solver)(**solver_kwargs)
+            opt_state = optimizer.init(self.weights_)
+
+        dw = 1.0 / self.n_weight_grid_
+        sigma_frac_dw = jnp.maximum(1.0, self.sigma_frac / dw)
+
         converged = False
-        for epoch in range(n_epochs):
+        for _ in range(n_epochs):
             old_weights = self.weights_
 
             self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
             inds = jax.random.permutation(subkey, X.shape[0])
+
+            _sigma_frac = dw * jnp.power(
+                sigma_frac_dw, jnp.maximum(1.0 - self.n_iter_ / self.max_iter, 0.0)
+            )
+
             for start in range(0, X.shape[0], self.batch_size):
                 end = min(start + self.batch_size, X.shape[0])
                 Xb = X[inds[start:end], :]
 
-                _weights, _n_seen, _ = _jax_update_som_weights_minibatch(
-                    self.weights_,
-                    self.n_seen_,
-                    self.weight_positions_,
-                    Xb,
-                    self.sigma_frac,
-                )
-                self.weights_ = _weights
-                self.n_seen_ = _n_seen
+                if self.solver != "online":
+                    grads = _grad_jax_compute_extended_distortion(
+                        self.weights_,
+                        self.weight_positions_,
+                        Xb,
+                        _sigma_frac,
+                    )
+                    updates, opt_state = optimizer.update(
+                        grads, opt_state, self.weights_
+                    )
+                    self.weights_ = optax.apply_updates(self.weights_, updates)
+                else:
+                    _weights, _n_seen, _ = _jax_update_som_weights_minibatch(
+                        self.weights_,
+                        self.n_seen_,
+                        self.weight_positions_,
+                        Xb,
+                        _sigma_frac,
+                    )
+                    self.weights_ = _weights
+                    self.n_seen_ = _n_seen
 
             self.n_iter_ += 1
             if self.n_iter_ > 1 and jnp.allclose(
@@ -295,7 +336,7 @@ class SOMap(ClusterMixin, BaseEstimator):
             X = validate_data(self, X=X, reset=False)
             X = jnp.array(X)
         if not getattr(self, "_is_fit", False):
-            raise NotFittedError("MiniBatchSOMap must be fit before calling `predict`!")
+            raise NotFittedError("SOMap must be fit before calling `predict`!")
 
         vals = []
         for start in range(0, X.shape[0], self.batch_size):
@@ -328,7 +369,7 @@ class SOMap(ClusterMixin, BaseEstimator):
             X = validate_data(self, X=X, reset=False)
             X = jnp.array(X)
         if not getattr(self, "_is_fit", False):
-            raise NotFittedError("MiniBatchSOMap must be fit before calling `predict`!")
+            raise NotFittedError("SOMap must be fit before calling `predict`!")
 
         val = 0.0
         for start in range(0, X.shape[0], self.batch_size):

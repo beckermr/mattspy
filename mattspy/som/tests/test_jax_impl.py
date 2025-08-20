@@ -18,6 +18,8 @@ def clst():
         random_state=RANDOM_SEED,
         batch_size=4,
         n_clusters=3,
+        sigma_frac=0.75,
+        max_iter=200,
     )
 
 
@@ -38,7 +40,7 @@ def test_som_oneshot(clst):
     X, y = load_iris(return_X_y=True)
     clst.partial_fit(X)
     init_score = clst.score(X)
-    for i in range(10):
+    for i in range(clst.max_iter + 10):
         clst.partial_fit(X)
     final_score = clst.score(X)
     ml = _mode_label(y, clst.labels_, clst.n_clusters)
