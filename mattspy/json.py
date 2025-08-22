@@ -221,16 +221,16 @@ class EstimatorToFromJSONMixin:
         if hasattr(data, "read"):
             data = load(data)
         else:
-            if os.path.exists(str):
+            if os.path.exists(data):
                 with open(str, "r") as fp:
                     data = loads(fp.read())
             else:
                 data = loads(data)
 
         obj = cls()
-        params = {k: data[k] for k in cls.get_params() if k in data}
+        params = {k: data[k] for k in obj.get_params() if k in data}
         obj.set_params(**params)
-        for k in cls.get_params():
+        for k in obj.get_params():
             if k in data:
                 del data[k]
 
