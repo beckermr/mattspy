@@ -1,5 +1,3 @@
-import os
-
 import jax
 from jax import numpy as jnp
 import numpy as np
@@ -10,7 +8,7 @@ from sklearn.utils import check_random_state
 from sklearn.utils.validation import validate_data
 from sklearn.exceptions import NotFittedError
 
-from mattspy.json import EstimatorToFromJSONMixin, load, loads
+from mattspy.json import EstimatorToFromJSONMixin
 
 
 @jax.jit
@@ -132,6 +130,7 @@ class SOMap(EstimatorToFromJSONMixin, ClusterMixin, BaseEstimator):
         Set to True if the fit converged. False otherwise.
     """
 
+    json_init_method_ = "_init_fit"
     json_attributes_ = (
         "n_clusters",
         "sigma_frac",
@@ -209,42 +208,14 @@ class SOMap(EstimatorToFromJSONMixin, ClusterMixin, BaseEstimator):
         """
         return self._partial_fit(1, X)
 
-    @classmethod
-    def from_json(cls, data):
-        """Load an estimator from JSON data.
-
-        Parameters
-        ----------
-        data : str or file-like
-            The JSON data.
-
-        Returns
-        -------
-        estimator
-        """
-        if hasattr(data, "read"):
-            data = load(data)
-        else:
-            if os.path.exists(str):
-                with open(str, "r") as fp:
-                    data = loads(fp.read())
-            else:
-                data = loads(data)
-
-        obj = cls()
-        params = {k: data[k] for k in obj.get_params() if k in data}
-        obj.set_params(**params)
-        for k in obj.get_params():
-            if k in data:
-                del data[k]
-        obj._init_fit(np.ones((1, data["weights_"].shape[1])), **data)
-        return obj
-
     def _init_numpy(self, X):
         X = validate_data(self, X=X, reset=True)
         return X
 
-    def _init_fit(self, X, **kwargs):
+    def _init_fit(self, X=None, **kwargs):
+        if X is None and "weights_" in kwargs:
+            X = np.ones((1, kwargs["weights_"].shape[1]))
+
         self.n_seen_ = kwargs.get(
             "n_seen_",
             jnp.zeros(self.n_clusters),

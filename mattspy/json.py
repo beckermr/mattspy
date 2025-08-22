@@ -233,6 +233,10 @@ class EstimatorToFromJSONMixin:
         for k in cls.get_params():
             if k in data:
                 del data[k]
-        for k, v in data.items():
-            setattr(obj, k, v)
+
+        if getattr(cls, "json_init_method_"):
+            getattr(obj, cls.json_init_method_)(**data)
+        else:
+            for k, v in data.items():
+                setattr(obj, k, v)
         return obj
