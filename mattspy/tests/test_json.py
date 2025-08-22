@@ -7,7 +7,8 @@ import pytest
 from mattspy.json import dumps, loads
 
 
-@pytest.mark.parametrize("val",
+@pytest.mark.parametrize(
+    "val",
     [
         np.array(10.0),
         np.array(10.0, dtype=int),
@@ -30,7 +31,7 @@ from mattspy.json import dumps, loads
         np.arange(10, dtype=float),
         np.array(["%s" % i for i in range(10)], dtype="U"),
         np.array(["%s" % i for i in range(10)], dtype="S"),
-    ]
+    ],
 )
 def test_json_numpy(val):
     sval = loads(dumps([val]))[0]
@@ -42,7 +43,8 @@ def test_json_numpy(val):
     assert val.dtype == sval.dtype
 
 
-@pytest.mark.parametrize("val",
+@pytest.mark.parametrize(
+    "val",
     [
         jnp.array(10.0),
         jnp.array(10.0, dtype=int),
@@ -61,7 +63,7 @@ def test_json_numpy(val):
         jnp.arange(10, dtype=jnp.complex64),
         jnp.arange(10, dtype=jnp.complex128),
         jnp.arange(10, dtype=float),
-    ]
+    ],
 )
 def test_json_jax(val):
     sval = loads(dumps([val]))[0]

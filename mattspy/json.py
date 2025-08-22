@@ -34,7 +34,7 @@ from numpy.lib.format import descr_to_dtype, dtype_to_descr
 def hint_tuples(item):
     """See https://stackoverflow.com/a/15721641/1745538"""
     if isinstance(item, tuple):
-        return {'__tuple__': [hint_tuples(e) for e in item]}
+        return {"__tuple__": [hint_tuples(e) for e in item]}
     if isinstance(item, list):
         return [hint_tuples(e) for e in item]
     if isinstance(item, dict):
@@ -57,6 +57,7 @@ class _CustomEncoder(json.JSONEncoder):
     """
     See https://stackoverflow.com/a/15721641/1745538
     """
+
     def encode(self, obj):
         return super().encode(hint_tuples(obj))
 
@@ -94,14 +95,10 @@ class _CustomEncoder(json.JSONEncoder):
             }
 
         if isinstance(o, np.random.RandomState):
-            return {
-                "__numpy_random_state__": hint_tuples(o.get_state())
-            }
+            return {"__numpy_random_state__": hint_tuples(o.get_state())}
 
         if isinstance(o, np.random.Generator):
-            return {
-                "__numpy_random_generator__": hint_tuples(o.bit_generator.state)
-            }
+            return {"__numpy_random_generator__": hint_tuples(o.bit_generator.state)}
 
         raise TypeError(
             f"Object of type {o.__class__.__name__} is not JSON serializable"
@@ -119,7 +116,8 @@ def _object_hook(dct):
         )
         arr = (
             np_obj.reshape(shape)
-            if (shape := dehint_tuples(dct["shape"])) else np_obj[0]
+            if (shape := dehint_tuples(dct["shape"]))
+            else np_obj[0]
         )
         key = jnp.array(arr)
         return jrng.wrap_key_data(key)
@@ -128,7 +126,8 @@ def _object_hook(dct):
         np_obj = frombuffer(b64decode(dct["__jax__"]), descr_to_dtype(dct["dtype"]))
         arr = (
             np_obj.reshape(shape)
-            if (shape := dehint_tuples(dct["shape"])) else np_obj[0]
+            if (shape := dehint_tuples(dct["shape"]))
+            else np_obj[0]
         )
         return jnp.array(arr)
 
@@ -136,7 +135,8 @@ def _object_hook(dct):
         np_obj = frombuffer(b64decode(dct["__numpy__"]), descr_to_dtype(dct["dtype"]))
         return (
             np_obj.reshape(shape)
-            if (shape := dehint_tuples(dct["shape"])) else np_obj[0]
+            if (shape := dehint_tuples(dct["shape"]))
+            else np_obj[0]
         )
 
     if "__tuple__" in dct:
@@ -228,9 +228,7 @@ class EstimatorToFromJSONMixin:
                 data = loads(data)
 
         obj = cls()
-        params = {
-            k: data[k] for k in cls.get_params() if k in data
-        }
+        params = {k: data[k] for k in cls.get_params() if k in data}
         obj.set_params(**params)
         for k in cls.get_params():
             if k in data:
