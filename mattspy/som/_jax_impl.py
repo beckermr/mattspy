@@ -1,11 +1,16 @@
+import os
+
 import jax
 from jax import numpy as jnp
+import numpy as np
 import optax
 
 from sklearn.base import BaseEstimator, ClusterMixin
 from sklearn.utils import check_random_state
 from sklearn.utils.validation import validate_data
 from sklearn.exceptions import NotFittedError
+
+from mattspy.json import EstimatorToFromJSONMixin, load, loads
 
 
 @jax.jit
@@ -63,11 +68,14 @@ _grad_jax_compute_extended_distortion = jax.jit(
 )
 
 
-class SOMap(ClusterMixin, BaseEstimator):
+class SOMap(EstimatorToFromJSONMixin, ClusterMixin, BaseEstimator):
     """A mini-batch Self-organazing Map (SOM) implementation.
 
-    This SOM implementation fits the data through a mini-batch technique.
-    The mini-batch technique is based on extending the adaptive mini-batch
+    This SOM implementation fits the data through a mini-batch technique
+    based on either using a custom 'online' optimizer or directly minimizing
+    the Extended Distortion.
+
+    The 'online' mini-batch technique is based on extending the adaptive mini-batch
     K-means algorithm from Sculley (2010, "Web-Scale K-Means Clustering")
     to SOMs using gradients of the Extended Distortion (Ritter et al.,
     1992, "Neural Computation and Self-Organizing Maps: an Introduction").
@@ -124,6 +132,28 @@ class SOMap(ClusterMixin, BaseEstimator):
         Set to True if the fit converged. False otherwise.
     """
 
+    json_attributes_ = (
+        "n_clusters",
+        "sigma_frac",
+        "random_state",
+        "batch_size",
+        "solver",
+        "solver_kwargs",
+        "max_iter",
+        "rtol",
+        "atol",
+        "backend",
+        "_is_fit",
+        "_rng",
+        "_jax_rng_key",
+        "n_seen_",
+        "n_weight_grid_",
+        "n_iter_",
+        "converged_",
+        "weights_",
+        "weight_positions_",
+    )
+
     def __init__(
         self,
         n_clusters=16,
@@ -179,33 +209,71 @@ class SOMap(ClusterMixin, BaseEstimator):
         """
         return self._partial_fit(1, X)
 
+    @classmethod
+    def from_json(cls, data):
+        """Load an estimator from JSON data.
+
+        Parameters
+        ----------
+        data : str or file-like
+            The JSON data.
+
+        Returns
+        -------
+        estimator
+        """
+        if hasattr(data, "read"):
+            data = load(data)
+        else:
+            if os.path.exists(str):
+                with open(str, "r") as fp:
+                    data = loads(fp.read())
+            else:
+                data = loads(data)
+
+        obj = cls()
+        params = {k: data[k] for k in obj.get_params() if k in data}
+        obj.set_params(**params)
+        for k in obj.get_params():
+            if k in data:
+                del data[k]
+        obj._init_fit(np.ones((1, data["weights_"].shape[1])), **data)
+        return obj
+
     def _init_numpy(self, X):
         X = validate_data(self, X=X, reset=True)
         return X
 
-    def _init_jax(self, X):
-        self.n_features_in_ = X.shape[1]
-        return X
+    def _init_fit(self, X, **kwargs):
+        self.n_seen_ = kwargs.get(
+            "n_seen_",
+            jnp.zeros(self.n_clusters),
+        )
+        self.n_weight_grid_ = kwargs.get(
+            "n_weight_grid_",
+            int(np.ceil(np.sqrt(self.n_clusters))),
+        )
+        self.n_iter_ = kwargs.get("n_iter_", 0)
 
-    def _partial_fit(self, n_epochs, X, y=None):
-        if not getattr(self, "_is_fit", False):
-            self.n_seen_ = jnp.zeros(self.n_clusters)
-            self.n_weight_grid_ = int(jnp.ceil(jnp.sqrt(self.n_clusters)))
-            self.n_iter_ = 0
+        self._rng = kwargs.get("_rng", check_random_state(self.random_state))
 
-            # rng init
-            self._rng = check_random_state(self.random_state)
+        if "_jax_rng_key" in kwargs:
+            self._jax_rng_key = kwargs["_jax_rng_key"]
+        else:
             self._jax_rng_key = jax.random.key(
                 self._rng.randint(low=1, high=int(2**31))
             )
 
-            # check inputs and convert to JAX
-            if not isinstance(X, jnp.ndarray):
-                X = self._init_numpy(X)
-                X = jnp.array(X)
-            else:
-                X = self._init_jax(X)
+        # check inputs and convert to JAX
+        if not isinstance(X, jnp.ndarray):
+            X = self._init_numpy(X)
+            X = jnp.array(X)
+        else:
+            self._init_numpy(np.ones((1, X.shape[1])))
 
+        if "weights_" in kwargs:
+            self.weights_ = jnp.array(kwargs["weights_"])
+        else:
             # weight init
             self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
             if X.shape[1] == 1:
@@ -241,6 +309,9 @@ class SOMap(ClusterMixin, BaseEstimator):
                     + eigscale[:, 1:2] * sqrt_eval2 * evec2
                 )
 
+        if "weight_positions_" in kwargs:
+            self.weight_positions_ = jnp.array(kwargs["weight_positions_"])
+        else:
             # weight position init
             pos = jnp.linspace(0, 1, self.n_weight_grid_)
             xp, yp = jnp.meshgrid(pos, pos)
@@ -256,6 +327,13 @@ class SOMap(ClusterMixin, BaseEstimator):
                     shape=(self.n_clusters,),
                 )
                 self.weight_positions_ = self.weight_positions_[rind, :]
+
+        self.converged_ = kwargs.get("converged_", False)
+        self._is_fit = kwargs.get("_is_fit", True)
+
+    def _partial_fit(self, n_epochs, X, y=None):
+        if not getattr(self, "_is_fit", False):
+            self._init_fit(X)
         else:
             if not isinstance(X, jnp.ndarray):
                 X = validate_data(self, X=X, reset=False)
@@ -267,7 +345,7 @@ class SOMap(ClusterMixin, BaseEstimator):
             opt_state = optimizer.init(self.weights_)
 
         dw = 1.0 / self.n_weight_grid_
-        sigma_frac_dw = jnp.maximum(1.0, self.sigma_frac / dw)
+        sigma_frac_dw = np.maximum(1.0, self.sigma_frac / dw)
 
         converged = False
         for _ in range(n_epochs):
@@ -276,8 +354,8 @@ class SOMap(ClusterMixin, BaseEstimator):
             self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
             inds = jax.random.permutation(subkey, X.shape[0])
 
-            _sigma_frac = dw * jnp.power(
-                sigma_frac_dw, jnp.maximum(1.0 - self.n_iter_ / self.max_iter, 0.0)
+            _sigma_frac = dw * np.power(
+                sigma_frac_dw, np.maximum(1.0 - self.n_iter_ / self.max_iter, 0.0)
             )
 
             for start in range(0, X.shape[0], self.batch_size):
@@ -314,7 +392,6 @@ class SOMap(ClusterMixin, BaseEstimator):
                 break
 
         self.converged_ = converged
-        self._is_fit = True
         self.labels_ = _jax_predict_som(self.weights_, X)
 
         return self

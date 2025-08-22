@@ -79,10 +79,42 @@ def test_som_random_state_handling(with_jax, clst):
     assert np.allclose(labels, labels_again)
 
 
-def _apply_label_mapping(y, labels, n_clusters):
-    from scipy.stats import mode
+def test_som_to_from_json(clst):
+    X, y = load_iris(return_X_y=True)
+    clst.fit(X)
+    labels = clst.predict(X)
+    est_json = clst.to_json()
+    ml = _mode_label(y, clst.labels_, clst.n_clusters)
+    assert np.array_equal(np.sort(ml), np.arange(clst.n_clusters))
 
-    vals = {}
-    for k in range(n_clusters):
-        vals[k] = mode(y[labels == k])[0]
-    return jnp.array([vals[int(ll)] for ll in labels])
+    print(est_json)
+
+    new_clst = SOMap.from_json(est_json)
+    assert est_json == new_clst.to_json()
+    assert jnp.array_equal(clst.weights_, new_clst.weights_)
+    new_labels = new_clst.predict(X)
+    assert jnp.allclose(labels, new_labels)
+
+    new_clst.fit(X)
+    assert jnp.array_equal(clst.weights_, new_clst.weights_)
+    new_fit_labels = new_clst.predict(X)
+    assert jnp.allclose(labels, new_fit_labels)
+
+
+def test_som_to_from_json_partial_fit(clst):
+    X, y = load_iris(return_X_y=True)
+    clst.partial_fit(X)
+    new_clst = SOMap.from_json(clst.to_json())
+    for _ in range(399):
+        clst.partial_fit(X)
+        new_clst.partial_fit(X)
+
+    new_labels = new_clst.predict(X)
+    labels = clst.predict(X)
+    assert jnp.allclose(labels, new_labels)
+
+    ml = _mode_label(y, labels, clst.n_clusters)
+    assert np.array_equal(np.sort(ml), np.arange(clst.n_clusters))
+
+    assert jnp.array_equal(clst.weights_, new_clst.weights_)
+    assert jnp.array_equal(clst.n_features_in_, new_clst.n_features_in_)
