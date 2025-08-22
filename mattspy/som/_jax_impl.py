@@ -302,9 +302,11 @@ class SOMap(EstimatorToFromJSONMixin, ClusterMixin, BaseEstimator):
         self.converged_ = kwargs.get("converged_", False)
         self._is_fit = kwargs.get("_is_fit", True)
 
+        return X
+
     def _partial_fit(self, n_epochs, X, y=None):
         if not getattr(self, "_is_fit", False):
-            self._init_fit(X)
+            X = self._init_fit(X)
         else:
             if not isinstance(X, jnp.ndarray):
                 X = validate_data(self, X=X, reset=False)
