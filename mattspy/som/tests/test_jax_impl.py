@@ -79,7 +79,7 @@ def test_som_random_state_handling(with_jax, clst):
     assert np.allclose(labels, labels_again)
 
 
-def test_som_to_from_json(clst):
+def test_som_to_from_json_fit(clst):
     X, y = load_iris(return_X_y=True)
     clst.fit(X)
     labels = clst.predict(X)

@@ -173,6 +173,8 @@ def loads(*args, **kwargs):
 
 
 class EstimatorToFromJSONMixin:
+    json_init_method_ = "_init_from_json"
+
     def to_json(self, out=None):
         """Serialize this estimator to JSON.
 
@@ -190,7 +192,7 @@ class EstimatorToFromJSONMixin:
             The JSON-serialized data as a string.
         """
         data = {}
-        for attr in self.json_attributes_:
+        for attr in set(self.json_attributes_) | set(self.get_params().keys()):
             if hasattr(self, attr):
                 data[attr] = getattr(self, attr)
         data = dumps(data)

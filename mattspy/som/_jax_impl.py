@@ -130,18 +130,7 @@ class SOMap(EstimatorToFromJSONMixin, ClusterMixin, BaseEstimator):
         Set to True if the fit converged. False otherwise.
     """
 
-    json_init_method_ = "_init_fit"
     json_attributes_ = (
-        "n_clusters",
-        "sigma_frac",
-        "random_state",
-        "batch_size",
-        "solver",
-        "solver_kwargs",
-        "max_iter",
-        "rtol",
-        "atol",
-        "backend",
         "_is_fit",
         "_rng",
         "_jax_rng_key",
@@ -212,7 +201,7 @@ class SOMap(EstimatorToFromJSONMixin, ClusterMixin, BaseEstimator):
         X = validate_data(self, X=X, reset=True)
         return X
 
-    def _init_fit(self, X=None, **kwargs):
+    def _init_from_json(self, X=None, **kwargs):
         if X is None and "weights_" in kwargs:
             X = np.ones((1, kwargs["weights_"].shape[1]))
 
@@ -306,7 +295,7 @@ class SOMap(EstimatorToFromJSONMixin, ClusterMixin, BaseEstimator):
 
     def _partial_fit(self, n_epochs, X, y=None):
         if not getattr(self, "_is_fit", False):
-            X = self._init_fit(X)
+            X = self._init_from_json(X)
         else:
             if not isinstance(X, jnp.ndarray):
                 X = validate_data(self, X=X, reset=False)
