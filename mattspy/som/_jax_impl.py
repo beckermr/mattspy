@@ -197,10 +197,6 @@ class SOMap(EstimatorToFromJSONMixin, ClusterMixin, BaseEstimator):
         """
         return self._partial_fit(1, X)
 
-    def _init_numpy(self, X):
-        X = validate_data(self, X=X, reset=True)
-        return X
-
     def _init_from_json(self, X=None, **kwargs):
         if X is None and "weights_" in kwargs:
             X = np.ones((1, kwargs["weights_"].shape[1]))
@@ -226,10 +222,10 @@ class SOMap(EstimatorToFromJSONMixin, ClusterMixin, BaseEstimator):
 
         # check inputs and convert to JAX
         if not isinstance(X, jnp.ndarray):
-            X = self._init_numpy(X)
+            X = validate_data(self, X=X, reset=True)
             X = jnp.array(X)
         else:
-            self._init_numpy(np.ones((1, X.shape[1])))
+            validate_data(self, X=np.ones((1, X.shape[1])), reset=True)
 
         if "weights_" in kwargs:
             self.weights_ = jnp.array(kwargs["weights_"])

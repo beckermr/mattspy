@@ -173,7 +173,9 @@ def loads(*args, **kwargs):
 
 
 class EstimatorToFromJSONMixin:
-    json_init_method_ = "_init_from_json"
+    def _init_from_json(self, **data):
+        for k, v in data.items():
+            setattr(self, k, v)
 
     def to_json(self, out=None):
         """Serialize this estimator to JSON.
@@ -236,9 +238,6 @@ class EstimatorToFromJSONMixin:
             if k in data:
                 del data[k]
 
-        if getattr(cls, "json_init_method_"):
-            getattr(obj, cls.json_init_method_)(**data)
-        else:
-            for k, v in data.items():
-                setattr(obj, k, v)
+        obj._init_from_json(**data)
+
         return obj
