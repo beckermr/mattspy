@@ -31,25 +31,25 @@ from numpy import frombuffer, generic, ndarray
 from numpy.lib.format import descr_to_dtype, dtype_to_descr
 
 
-def hint_tuples(item):
+def _hint_tuples(item):
     """See https://stackoverflow.com/a/15721641/1745538"""
     if isinstance(item, tuple):
-        return {"__tuple__": [hint_tuples(e) for e in item]}
+        return {"__tuple__": [_hint_tuples(e) for e in item]}
     if isinstance(item, list):
-        return [hint_tuples(e) for e in item]
+        return [_hint_tuples(e) for e in item]
     if isinstance(item, dict):
-        return {key: hint_tuples(value) for key, value in item.items()}
+        return {key: _hint_tuples(value) for key, value in item.items()}
     return item
 
 
-def dehint_tuples(item):
+def _dehint_tuples(item):
     """See https://stackoverflow.com/a/15721641/1745538"""
     if isinstance(item, tuple):
-        return tuple([dehint_tuples(e) for e in item])
+        return tuple([_dehint_tuples(e) for e in item])
     if isinstance(item, list):
-        return [dehint_tuples(e) for e in item]
+        return [_dehint_tuples(e) for e in item]
     if isinstance(item, dict) and "__tuple__" in item:
-        return tuple([dehint_tuples(e) for e in item["__tuple__"]])
+        return tuple([_dehint_tuples(e) for e in item["__tuple__"]])
     return item
 
 
@@ -59,7 +59,7 @@ class _CustomEncoder(json.JSONEncoder):
     """
 
     def encode(self, obj):
-        return super().encode(hint_tuples(obj))
+        return super().encode(_hint_tuples(obj))
 
     def default(self, o):
         from jax import dtypes
@@ -74,7 +74,7 @@ class _CustomEncoder(json.JSONEncoder):
             return {
                 "__jax_rng_key__": b64encode(data).decode(),
                 "dtype": dtype_to_descr(o.dtype),
-                "shape": hint_tuples(o.shape),
+                "shape": _hint_tuples(o.shape),
             }
 
         if isinstance(o, jnp.ndarray):
@@ -83,7 +83,7 @@ class _CustomEncoder(json.JSONEncoder):
             return {
                 "__jax__": b64encode(data).decode(),
                 "dtype": dtype_to_descr(o.dtype),
-                "shape": hint_tuples(o.shape),
+                "shape": _hint_tuples(o.shape),
             }
 
         if isinstance(o, (ndarray, generic)):
@@ -91,14 +91,14 @@ class _CustomEncoder(json.JSONEncoder):
             return {
                 "__numpy__": b64encode(data).decode(),
                 "dtype": dtype_to_descr(o.dtype),
-                "shape": hint_tuples(o.shape),
+                "shape": _hint_tuples(o.shape),
             }
 
         if isinstance(o, np.random.RandomState):
-            return {"__numpy_random_state__": hint_tuples(o.get_state())}
+            return {"__numpy_random_state__": _hint_tuples(o.get_state())}
 
         if isinstance(o, np.random.Generator):
-            return {"__numpy_random_generator__": hint_tuples(o.bit_generator.state)}
+            return {"__numpy_random_generator__": _hint_tuples(o.bit_generator.state)}
 
         raise TypeError(
             f"Object of type {o.__class__.__name__} is not JSON serializable"
@@ -116,7 +116,7 @@ def _object_hook(dct):
         )
         arr = (
             np_obj.reshape(shape)
-            if (shape := dehint_tuples(dct["shape"]))
+            if (shape := _dehint_tuples(dct["shape"]))
             else np_obj[0]
         )
         key = jnp.array(arr)
@@ -126,7 +126,7 @@ def _object_hook(dct):
         np_obj = frombuffer(b64decode(dct["__jax__"]), descr_to_dtype(dct["dtype"]))
         arr = (
             np_obj.reshape(shape)
-            if (shape := dehint_tuples(dct["shape"]))
+            if (shape := _dehint_tuples(dct["shape"]))
             else np_obj[0]
         )
         return jnp.array(arr)
@@ -135,20 +135,20 @@ def _object_hook(dct):
         np_obj = frombuffer(b64decode(dct["__numpy__"]), descr_to_dtype(dct["dtype"]))
         return (
             np_obj.reshape(shape)
-            if (shape := dehint_tuples(dct["shape"]))
+            if (shape := _dehint_tuples(dct["shape"]))
             else np_obj[0]
         )
 
     if "__tuple__" in dct:
-        return dehint_tuples(dct)
+        return _dehint_tuples(dct)
 
     if "__numpy_random_state__" in dct:
         rng = np.random.RandomState()
-        rng.set_state(dehint_tuples(dct["__numpy_random_state__"]))
+        rng.set_state(_dehint_tuples(dct["__numpy_random_state__"]))
         return rng
 
     if "__numpy_random_generator__" in dct:
-        data = dehint_tuples(dct["__numpy_random_generator__"])
+        data = _dehint_tuples(dct["__numpy_random_generator__"])
         bg = getattr(np.random, data["bit_generator"])()
         bg.state = data
         return np.random.Generator(bg)
