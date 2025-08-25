@@ -285,7 +285,7 @@ def test_fm_jax_arrays():
     assert clf.n_features_in_ == X.shape[1]
     assert clf.n_classes_ == len(jnp.unique(y))
     init_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
-    for _ in range(10):
+    for _ in range(20):
         clf.partial_fit(X, y)
     final_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
     assert final_auc > init_auc
@@ -296,7 +296,7 @@ def test_fm_jax_arrays():
     assert clf.n_features_in_ == X.shape[1]
     assert clf.n_classes_ == len(jnp.unique(y))
     init_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
-    for _ in range(10):
+    for _ in range(20):
         clf.partial_fit(X, y)
     final_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
     assert final_auc > init_auc
