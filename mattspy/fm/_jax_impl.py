@@ -3,6 +3,7 @@ import optax
 from jax import numpy as jnp
 from jax.tree_util import Partial as partial
 
+import numpy as np
 from optax.losses import softmax_cross_entropy_with_integer_labels
 from sklearn.base import ClassifierMixin, BaseEstimator
 from sklearn.utils import check_random_state
@@ -10,6 +11,8 @@ from sklearn.utils.validation import validate_data
 from sklearn.utils.multiclass import type_of_target
 from sklearn.exceptions import NotFittedError
 from sklearn.preprocessing import LabelEncoder
+
+from mattspy.json import EstimatorToFromJSONMixin
 
 
 @jax.jit
@@ -121,7 +124,11 @@ def _call_in_batches_maybe(self, func, X):
         return func(self.params_, X)
 
 
-class FMClassifier(ClassifierMixin, BaseEstimator):
+class _LabelEncoder(EstimatorToFromJSONMixin, LabelEncoder):
+    json_attributes_ = ("classes_",)
+
+
+class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
     r"""A Factorization Machine classifier.
 
     The FM model for the logits for class c is
@@ -138,7 +145,7 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
     batch_size : int, optional
         The number of examples to use when fitting the estimator
         and making predictions. The value None indicates to use all
-        examples.
+        examples. This parameter is ignored if the solver is set to `lbfgs`.
     lambda_v : float, optional
         The L2 regularization strength to use for the low-rank embedding
         matrix.
@@ -172,6 +179,18 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
         otherwise.
     """
 
+    json_attributes_ = (
+        "_is_fit",
+        "_rng",
+        "_jax_rng_key",
+        "classes_",
+        "n_classes_",
+        "params_",
+        "converged_",
+        "n_iter_",
+        "_label_encoder",
+    )
+
     def __init__(
         self,
         rank=8,
@@ -202,7 +221,10 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
 
     def fit(self, X, y):
         self._is_fit = False
-        return self.partial_fit(X, y)
+        return self._partial_fit(self.max_iter, X, y)
+
+    def partial_fit(self, X, y, classes=None):
+        return self._partial_fit(1, X, y, classes=classes)
 
     def _init_numpy(self, X, y, classes=None):
         X, y = validate_data(self, X=X, y=y, reset=True)
@@ -215,9 +237,9 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
             )
 
         if classes is not None:
-            self._label_encoder = LabelEncoder().fit(classes)
+            self._label_encoder = _LabelEncoder().fit(classes)
         else:
-            self._label_encoder = LabelEncoder().fit(y)
+            self._label_encoder = _LabelEncoder().fit(y)
         self.classes_ = self._label_encoder.classes_
         self.n_classes_ = len(self.classes_)
         return X, y
@@ -229,7 +251,13 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
         else:
             self.classes_ = jnp.unique(y)
         self.n_classes_ = len(self.classes_)
-        self.n_features_in_ = X.shape[1]
+
+        validate_data(
+            self,
+            X=np.ones((1, X.shape[1])),
+            y=np.ones(1, dtype=np.int32),
+            reset=True,
+        )
 
         if not jnp.array_equal(jnp.arange(self.n_classes_), self.classes_):
             raise ValueError(
@@ -239,16 +267,53 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
 
         return X, y
 
-    def partial_fit(self, X, y, classes=None):
-        if not getattr(self, "_is_fit", False):
-            self._rng = check_random_state(self.random_state)
+    def _init_from_json(self, X=None, y=None, classes=None, **kwargs):
+        self.n_iter_ = kwargs.get("n_iter_", 0)
+        self._rng = kwargs.get("_rng", check_random_state(self.random_state))
+        if "_jax_rng_key" in kwargs:
+            self._jax_rng_key = kwargs["_jax_rng_key"]
+        else:
             self._jax_rng_key = jax.random.key(
                 self._rng.randint(low=1, high=int(2**31))
             )
+        self.converged_ = kwargs.get(
+            "converged_",
+            False,
+        )
+        self._is_fit = kwargs.get("_is_fit", True)
+
+        if X is None and y is None:
+            # restore strictly from JSON
+            if "classes_" in kwargs:
+                self.classes_ = kwargs["classes_"]
+            if "n_classes_" in kwargs:
+                self.n_classes_ = kwargs["n_classes_"]
+            if "_label_encoder" in kwargs:
+                self._label_encoder = kwargs["_label_encoder"]
+        else:
             if not (isinstance(X, jnp.ndarray) and isinstance(y, jnp.ndarray)):
                 X, y = self._init_numpy(X, y, classes=classes)
             else:
                 X, y = self._init_jax(X, y, classes=classes)
+
+        if "params_" not in kwargs:
+            self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
+            w0 = jax.random.normal(subkey, shape=(self.n_classes_))
+            self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
+            w = jax.random.normal(subkey, shape=(self.n_features_in_, self.n_classes_))
+            self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
+            vmat = jax.random.normal(
+                subkey, shape=(self.n_features_in_, self.rank, self.n_classes_)
+            )
+            self.params_ = (w0, w, vmat)
+        else:
+            self.params_ = kwargs["params_"]
+
+        return X, y
+
+    def _partial_fit(self, n_epochs, X, y, classes=None):
+        if not getattr(self, "_is_fit", False):
+            X, y = self._init_from_json(X=X, y=y, classes=classes)
         else:
             if not (isinstance(X, jnp.ndarray) and isinstance(y, jnp.ndarray)):
                 X, y = validate_data(self, X=X, y=y, reset=False)
@@ -260,61 +325,50 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
             X = jnp.array(X)
             y = jnp.array(y)
 
-        if not getattr(self, "_is_fit", False):
-            self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
-            w0 = jax.random.normal(subkey, shape=(self.n_classes_))
-            self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
-            w = jax.random.normal(subkey, shape=(self.n_features_in_, self.n_classes_))
-            self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
-            vmat = jax.random.normal(
-                subkey, shape=(self.n_features_in_, self.rank, self.n_classes_)
-            )
-            params = (w0, w, vmat)
-        else:
-            params = tuple(p.copy() for p in self.params_)
-
         kwargs = {k: v for k, v in (self.solver_kwargs or tuple())}
         optimizer = getattr(optax, self.solver)(**kwargs)
-        opt_state = optimizer.init(params)
-        converged = False
+        opt_state = optimizer.init(self.params_)
+        new_value = None
 
-        if self.batch_size is not None:
-            self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
-            inds = jax.random.permutation(subkey, X.shape[0])
-            for start in range(0, X.shape[0], self.batch_size):
-                end = min(start + self.batch_size, X.shape[0])
-                Xb = X[inds[start:end], :]
-                yb = y[inds[start:end]]
-                grads = _grad_jax_loss_func(
-                    params, Xb, yb, self.lambda_v, self.lambda_w
-                )
-                updates, opt_state = optimizer.update(grads, opt_state, params)
-                params = optax.apply_updates(params, updates)
+        for _ in range(n_epochs):
+            value = new_value
 
-            self.n_iter_ = 1
-        else:
-            new_value = None
-            for i in range(self.max_iter):
-                value = new_value
-
-                if self.solver in ["lbfgs"]:
-                    new_value, grads = _value_and_grad_from_state_jax_loss_func(
-                        params,
-                        X,
-                        y,
-                        self.lambda_v,
-                        self.lambda_w,
-                        state=opt_state,
-                    )
+            if self.solver not in ["lbfgs"]:
+                if self.batch_size is not None:
+                    self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
+                    inds = jax.random.permutation(subkey, X.shape[0])
+                    for start in range(0, X.shape[0], self.batch_size):
+                        end = min(start + self.batch_size, X.shape[0])
+                        Xb = X[inds[start:end], :]
+                        yb = y[inds[start:end]]
+                        grads = _grad_jax_loss_func(
+                            self.params_, Xb, yb, self.lambda_v, self.lambda_w
+                        )
+                        updates, opt_state = optimizer.update(
+                            grads, opt_state, self.params_
+                        )
+                        new_params = optax.apply_updates(self.params_, updates)
                 else:
-                    new_value, grads = _value_and_grad_jax_loss_func(
-                        params, X, y, self.lambda_v, self.lambda_w
+                    grads = _grad_jax_loss_func(
+                        self.params_, X, y, self.lambda_v, self.lambda_w
                     )
-
+                    updates, opt_state = optimizer.update(
+                        grads, opt_state, self.params_
+                    )
+                    new_params = optax.apply_updates(self.params_, updates)
+            else:
+                new_value, grads = _value_and_grad_from_state_jax_loss_func(
+                    self.params_,
+                    X,
+                    y,
+                    self.lambda_v,
+                    self.lambda_w,
+                    state=opt_state,
+                )
                 updates, opt_state = optimizer.update(
                     grads,
                     opt_state,
-                    params,
+                    self.params_,
                     value=new_value,
                     grad=grads,
                     value_fn=partial(
@@ -325,26 +379,25 @@ class FMClassifier(ClassifierMixin, BaseEstimator):
                         lambda_w=self.lambda_w,
                     ),
                 )
-                new_params = optax.apply_updates(params, updates)
+                new_params = optax.apply_updates(self.params_, updates)
 
-                if i > 0 and (
-                    all(
-                        [
-                            jnp.allclose(new_p, p, atol=self.atol, rtol=self.rtol)
-                            for new_p, p in zip(new_params, params)
-                        ]
-                    )
-                    or jnp.allclose(value, new_value, atol=self.atol, rtol=self.rtol)
-                ):
-                    converged = True
-                    break
-                params = new_params
+            self.n_iter_ += 1
+            if self.n_iter_ > 1 and (
+                all(
+                    [
+                        jnp.allclose(new_p, p, atol=self.atol, rtol=self.rtol)
+                        for new_p, p in zip(new_params, self.params_)
+                    ]
+                )
+                or (
+                    self.solver in ["lbfgs"]
+                    and jnp.allclose(value, new_value, atol=self.atol, rtol=self.rtol)
+                )
+            ):
+                self.converged_ = True
+                break
 
-            self.n_iter_ = i
-
-        self.params_ = params
-        self.converged_ = converged
-        self._is_fit = True
+            self.params_ = new_params
 
         return self
 

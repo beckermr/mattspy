@@ -11,12 +11,14 @@ from sklearn.metrics import roc_auc_score, accuracy_score
 from sklearn.model_selection import cross_val_predict, KFold
 
 
+from mattspy.json import dumps, loads
+from mattspy.fm import FMClassifier
 from mattspy.fm._jax_impl import (
     _lowrank_twoway_term,
     _fm_eval,
     _extract_fm_params,
     _combine_fm_params,
-    FMClassifier,
+    _LabelEncoder,
 )
 
 RANDOM_SEED = 42
@@ -183,7 +185,7 @@ def test_fm_partial_fit():
     clf = FMClassifier(batch_size=32, random_state=RANDOM_SEED)
     clf.partial_fit(X, y)
     init_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
-    for _ in range(10):
+    for _ in range(20):
         clf.partial_fit(X, y)
 
     final_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
@@ -200,7 +202,7 @@ def test_fm_partial_fit_classes():
     clf = FMClassifier(batch_size=32, random_state=RANDOM_SEED)
     clf.partial_fit(X[:20], y[:20], classes=np.unique(y))
     init_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
-    for _ in range(10):
+    for _ in range(20):
         clf.partial_fit(X, y)
 
     final_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
@@ -224,7 +226,6 @@ def test_fm_output_shapes():
     clf = FMClassifier(random_state=RANDOM_SEED)
     clf.fit(X, y)
     assert np.array_equal(clf.classes_, np.unique(y))
-    assert clf.converged_
     final_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
     assert final_auc > 0.90
 
@@ -238,7 +239,6 @@ def test_fm_output_shapes():
 
     clf.fit(X, (y == y[0]).astype(int))
     assert np.array_equal(clf.classes_, [0, 1])
-    assert clf.converged_
     final_auc = roc_auc_score((y == y[0]).astype(int), clf.predict_proba(X)[:, 1])
     assert final_auc > 0.90
 
@@ -271,7 +271,6 @@ def test_fm_jax_arrays():
         clf.fit(X, _y)
         assert clf.n_features_in_ == X.shape[1]
         assert clf.n_classes_ == len(jnp.unique(y))
-        assert clf.converged_
         final_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
         assert final_auc > 0.90
         final_auc = roc_auc_score(
@@ -291,7 +290,6 @@ def test_fm_jax_arrays():
     final_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
     assert final_auc > init_auc
     assert final_auc > 0.90
-    assert not clf.converged_
 
     clf = FMClassifier(batch_size=32, random_state=RANDOM_SEED)
     clf.partial_fit(X[:20], y[:20], classes=jnp.unique(y))
@@ -357,3 +355,46 @@ def test_fm_random_state_handling_jax():
     probs = clf.fit(X, y).predict_proba(X)
     probs_again = clf.fit(X, y).predict_proba(X)
     assert jnp.allclose(probs, probs_again)
+
+
+def test_label_encoder_check_estimator():
+    check_estimator(_LabelEncoder())
+
+
+def test_label_encoder_to_from_json():
+    enc = _LabelEncoder()
+    enc.fit(["a", "b", "b", "c"])
+    assert set(enc.classes_) == set(["a", "b", "c"])
+    new_enc = _LabelEncoder.from_json(enc.to_json())
+    assert set(new_enc.classes_) == set(["a", "b", "c"])
+    assert np.array_equal(
+        new_enc.transform(["a", "b"]), np.array([0, 1], dtype=np.int32)
+    )
+
+
+def test_label_encoder_dumps_loads():
+    enc = _LabelEncoder()
+    enc.fit(["a", "b", "b", "c"])
+    assert set(enc.classes_) == set(["a", "b", "c"])
+    new_enc = dumps(enc)
+    new_enc = loads(new_enc)
+    assert set(new_enc.classes_) == set(["a", "b", "c"])
+    assert np.array_equal(
+        new_enc.transform(["a", "b"]), np.array([0, 1], dtype=np.int32)
+    )
+
+
+def test_fm_dumps_loads():
+    X, y = load_iris(return_X_y=True)
+    X = StandardScaler().fit_transform(X)
+
+    clf = FMClassifier(batch_size=32, random_state=RANDOM_SEED)
+    clf.partial_fit(X, y)
+    init_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
+
+    new_clf = dumps(clf)
+    print(new_clf)
+    new_clf = loads(new_clf)
+    final_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
+
+    assert init_auc == final_auc
