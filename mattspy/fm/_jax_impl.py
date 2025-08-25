@@ -220,10 +220,43 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
         self.backend = backend
 
     def fit(self, X, y):
+        """Fit the FM to data `X` and `y`.
+
+        Parameters
+        ----------
+        X : array-like
+            An array of shape `(n_samples, n_features)`.
+        y : array-like
+            An array of labels of shape `(n_samples)`.
+
+        Returns
+        -------
+        self : object
+            The fit estimator.
+        """
+
         self._is_fit = False
         return self._partial_fit(self.max_iter, X, y)
 
     def partial_fit(self, X, y, classes=None):
+        """Fit the FM to data `X` and `y` for a single epoch.
+
+        Parameters
+        ----------
+        X : array-like
+            An array of shape `(n_samples, n_features)`.
+        y : array-like
+            An array of labels of shape `(n_samples)`.
+        classes : array-like, optional
+            If given, an optional array of unique class labels
+            that is used instead of extracting them from the input
+            `y`.
+
+        Returns
+        -------
+        self : object
+            The fit estimator.
+        """
         return self._partial_fit(1, X, y, classes=classes)
 
     def _init_numpy(self, X, y, classes=None):
@@ -402,6 +435,20 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
         return self
 
     def predict_log_proba(self, X):
+        """Predict the log-probability of each class for data `X`.
+
+        Parameters
+        ----------
+        X : array-like
+            An array of shape `(n_samples, n_features)`.
+
+        Returns
+        -------
+        log_proba : array-like
+            An array of labels of shape `(n_samples, n_classes_)` if `n_classes_` > 2,
+            else `(n_samples)`.
+        """
+
         if not isinstance(X, jnp.ndarray):
             X = validate_data(self, X=X, reset=False)
         if not getattr(self, "_is_fit", False):
@@ -411,6 +458,20 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
         return _call_in_batches_maybe(self, _jax_log_proba, X)
 
     def predict_proba(self, X):
+        """Predict the probability of each class for data `X`.
+
+        Parameters
+        ----------
+        X : array-like
+            An array of shape `(n_samples, n_features)`.
+
+        Returns
+        -------
+        proba : array-like
+            An array of labels of shape `(n_samples, n_classes_)` if `n_classes_` > 2,
+            else `(n_samples)`.
+        """
+
         if not isinstance(X, jnp.ndarray):
             X = validate_data(self, X=X, reset=False)
         if not getattr(self, "_is_fit", False):
@@ -420,6 +481,19 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
         return _call_in_batches_maybe(self, _jax_proba, X)
 
     def predict(self, X):
+        """Predict the class for data `X`.
+
+        Parameters
+        ----------
+        X : array-like
+            An array of shape `(n_samples, n_features)`.
+
+        Returns
+        -------
+        y : array-like
+            An array of labels of shape `(n_samples)`.
+        """
+
         if not isinstance(X, jnp.ndarray):
             X = validate_data(self, X=X, reset=False)
         if not getattr(self, "_is_fit", False):

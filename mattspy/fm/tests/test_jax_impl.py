@@ -393,7 +393,6 @@ def test_fm_dumps_loads():
     init_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
 
     new_clf = dumps(clf)
-    print(new_clf)
     new_clf = loads(new_clf)
     final_auc = roc_auc_score(y, clf.predict_proba(X), multi_class="ovo")
 
