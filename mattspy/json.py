@@ -23,6 +23,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
+from importlib import import_module
 import os
 import json
 from base64 import b64decode, b64encode
@@ -67,6 +68,13 @@ class _CustomEncoder(json.JSONEncoder):
         import jax.numpy as jnp
         import numpy as np
 
+        if isinstance(o, EstimatorToFromJSONMixin):
+            return {
+                "__sklearn_est_json__": _hint_tuples(o.to_dict()),
+                "__module__": o.__module__,
+                "__class__": o.__class__.__name__,
+            }
+
         if isinstance(o, jnp.ndarray) and dtypes.issubdtype(o.dtype, dtypes.prng_key):
             o = jrng.key_data(o)
             o = np.array(o)
@@ -109,6 +117,10 @@ def _object_hook(dct):
     import jax.random as jrng
     import jax.numpy as jnp
     import numpy as np
+
+    if "__sklearn_est_json__" in dct:
+        cls = getattr(import_module(dct["__module__"]), dct["__class__"])
+        return cls.from_dict(_dehint_tuples(dct["__sklearn_est_json__"]))
 
     if "__jax_rng_key__" in dct:
         np_obj = frombuffer(
@@ -177,6 +189,21 @@ class EstimatorToFromJSONMixin:
         for k, v in data.items():
             setattr(self, k, v)
 
+    def to_dict(self):
+        """
+        Serialize this estimator to a dictionary suitable for JSON encoding.
+
+        Returns
+        -------
+        dict
+        """
+        data = {}
+        for attr in set(self.json_attributes_) | set(self.get_params().keys()):
+            if hasattr(self, attr):
+                data[attr] = getattr(self, attr)
+
+        return data
+
     def to_json(self, out=None):
         """Serialize this estimator to JSON.
 
@@ -193,11 +220,7 @@ class EstimatorToFromJSONMixin:
         data : str
             The JSON-serialized data as a string.
         """
-        data = {}
-        for attr in set(self.json_attributes_) | set(self.get_params().keys()):
-            if hasattr(self, attr):
-                data[attr] = getattr(self, attr)
-        data = dumps(data)
+        data = dumps(self.to_dict())
 
         if out is None:
             pass
@@ -208,6 +231,31 @@ class EstimatorToFromJSONMixin:
                 fp.write(data)
 
         return data
+
+    @classmethod
+    def from_dict(cls, data):
+        """Build an estimator from a dictionary of data.
+
+        Parameters
+        ----------
+        data : dict
+            The dictionary of data.
+
+        Returns
+        -------
+        estimator
+        """
+        obj = cls()
+        params = {k: data[k] for k in obj.get_params() if k in data}
+        obj.set_params(**params)
+        for k in obj.get_params():
+            if k in data:
+                del data[k]
+
+        if data:
+            obj._init_from_json(**data)
+
+        return obj
 
     @classmethod
     def from_json(cls, data):
@@ -231,13 +279,4 @@ class EstimatorToFromJSONMixin:
             else:
                 data = loads(data)
 
-        obj = cls()
-        params = {k: data[k] for k in obj.get_params() if k in data}
-        obj.set_params(**params)
-        for k in obj.get_params():
-            if k in data:
-                del data[k]
-
-        obj._init_from_json(**data)
-
-        return obj
+        return cls.from_dict(data)

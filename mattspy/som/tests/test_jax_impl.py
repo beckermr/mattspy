@@ -7,7 +7,8 @@ import pytest
 from sklearn.utils.estimator_checks import check_estimator
 from sklearn.datasets import load_iris
 
-from mattspy.som._jax_impl import SOMap
+from mattspy.json import dumps, loads
+from mattspy.som import SOMap
 
 RANDOM_SEED = 42
 
@@ -118,3 +119,23 @@ def test_som_to_from_json_partial_fit(clst):
 
     assert jnp.array_equal(clst.weights_, new_clst.weights_)
     assert jnp.array_equal(clst.n_features_in_, new_clst.n_features_in_)
+
+
+def test_som_dumps_loads(clst):
+    X, y = load_iris(return_X_y=True)
+    clst.fit(X)
+    labels = clst.predict(X)
+    est_json = dumps(clst)
+    ml = _mode_label(y, clst.labels_, clst.n_clusters)
+    assert np.array_equal(np.sort(ml), np.arange(clst.n_clusters))
+
+    new_clst = loads(est_json)
+    assert est_json == dumps(new_clst)
+    assert jnp.array_equal(clst.weights_, new_clst.weights_)
+    new_labels = new_clst.predict(X)
+    assert jnp.allclose(labels, new_labels)
+
+    new_clst.fit(X)
+    assert jnp.array_equal(clst.weights_, new_clst.weights_)
+    new_fit_labels = new_clst.predict(X)
+    assert jnp.allclose(labels, new_fit_labels)
