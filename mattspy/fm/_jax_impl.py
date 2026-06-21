@@ -26,8 +26,9 @@ def _lowrank_twoway_term(x, vmat):
 
     fterm = jnp.einsum("np,pkc->nkc", x_bf, vmat_bf)
     sterm = jnp.einsum("np,pkc->nkc", x_bf**2, vmat_bf**2)
-    return 0.5 * jnp.sum(fterm.astype(jnp.float32)**2 - sterm.astype(jnp.float32),
-                         axis=1)
+    return 0.5 * jnp.sum(
+        fterm.astype(jnp.float32) ** 2 - sterm.astype(jnp.float32), axis=1
+    )
 
 
 @sparse.sparsify
@@ -339,9 +340,9 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
         self : object
             The fit estimator.
         """
-        return self._partial_fit(1, X, y,
-                                 classes=classes,
-                                 check_convergence=check_convergence)
+        return self._partial_fit(
+            1, X, y, classes=classes, check_convergence=check_convergence
+        )
 
     def _init_numpy(self, X, y, classes=None):
         X, y = validate_data(self, X=X, y=y, reset=True)
@@ -408,8 +409,9 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
             if "_label_encoder" in kwargs:
                 self._label_encoder = kwargs["_label_encoder"]
         else:
-            if isinstance(X, sparse.BCOO) or \
-               (isinstance(X, jnp.ndarray) and isinstance(y, jnp.ndarray)):
+            if isinstance(X, sparse.BCOO) or (
+                isinstance(X, jnp.ndarray) and isinstance(y, jnp.ndarray)
+            ):
                 X, y = self._init_jax(X, y, classes=classes)
             else:
                 X, y = self._init_numpy(X, y, classes=classes)
@@ -513,17 +515,21 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
             if check_convergence:
                 if self.n_iter_ > 1 and (
                     jnp.all(
-                        jnp.array([
-                            jnp.allclose(new_p, p, atol=self.atol, rtol=self.rtol)
-                            for new_p, p in zip(new_params, prev_params)
-                        ])
+                        jnp.array(
+                            [
+                                jnp.allclose(new_p, p, atol=self.atol, rtol=self.rtol)
+                                for new_p, p in zip(new_params, prev_params)
+                            ]
+                        )
                     )
                     or (
                         self.solver in ["lbfgs"]
-                        and jnp.allclose(self.loss_history_[-2],
-                                         self.loss_history_[-1],
-                                         atol=self.atol,
-                                         rtol=self.rtol)
+                        and jnp.allclose(
+                            self.loss_history_[-2],
+                            self.loss_history_[-1],
+                            atol=self.atol,
+                            rtol=self.rtol,
+                        )
                     )
                 ):
                     self.converged_ = True
