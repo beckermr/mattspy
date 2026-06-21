@@ -17,6 +17,7 @@ from mattspy.json import EstimatorToFromJSONMixin
 from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 from jax.experimental import sparse
 
+
 @jax.checkpoint
 @sparse.sparsify
 def _lowrank_twoway_term(x, vmat):
@@ -25,14 +26,16 @@ def _lowrank_twoway_term(x, vmat):
 
     fterm = jnp.einsum("np,pkc->nkc", x_bf, vmat_bf)
     sterm = jnp.einsum("np,pkc->nkc", x_bf**2, vmat_bf**2)
-    return 0.5 * jnp.sum(fterm.astype(jnp.float32)**2 - sterm.astype(jnp.float32), axis=1)
+    return 0.5 * jnp.sum(fterm.astype(jnp.float32)**2 - sterm.astype(jnp.float32),
+                         axis=1)
+
 
 @sparse.sparsify
 def _linear_term(x, w):
     return jnp.einsum("np,p...->n...", x, w)
 
+
 @jax.jit
-#@sparse.sparsify
 def _fm_eval(x, w0, w, vmat):
     return w0 + _linear_term(x, w) + _lowrank_twoway_term(x, vmat)
 
@@ -102,6 +105,7 @@ def _jax_logits(params, X):
     w0, w, vmat = params
     logits = _fm_eval(X, w0, w, vmat)
     return logits
+
 
 _jax_proba = jax.jit(
     lambda params, X: jax.nn.softmax(_jax_logits(params, X), axis=-1),
@@ -310,7 +314,7 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
         self._is_fit = False
         return self._partial_fit(self.max_iter, X, y)
 
-    def partial_fit(self, X, y, classes=None):
+    def partial_fit(self, X, y, classes=None, convergence_check=False):
         """Fit the FM to data `X` and `y` for a single epoch.
 
         Parameters
@@ -323,13 +327,21 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
             If given, an optional array of unique class labels
             that is used instead of extracting them from the input
             `y`.
+        convergence_check : bool, optional
+            If True, checks for convergence after this partial fit. Default is False.
+            Note that it can incur additional computational and memorycost as it
+            requires checking the convergence criteria after this partial fit,
+            so not ideal for external mini-batch updates.
+
 
         Returns
         -------
         self : object
             The fit estimator.
         """
-        return self._partial_fit(1, X, y, classes=classes)
+        return self._partial_fit(1, X, y,
+                                 classes=classes,
+                                 convergence_check=convergence_check)
 
     def _init_numpy(self, X, y, classes=None):
         X, y = validate_data(self, X=X, y=y, reset=True)
@@ -396,7 +408,8 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
             if "_label_encoder" in kwargs:
                 self._label_encoder = kwargs["_label_encoder"]
         else:
-            if isinstance(X, sparse.BCOO) or (isinstance(X, jnp.ndarray) and isinstance(y, jnp.ndarray)):
+            if isinstance(X, sparse.BCOO) or \
+               (isinstance(X, jnp.ndarray) and isinstance(y, jnp.ndarray)):
                 X, y = self._init_jax(X, y, classes=classes)
             else:
                 X, y = self._init_numpy(X, y, classes=classes)
@@ -410,7 +423,7 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
 
         return X, y
 
-    def _partial_fit(self, n_epochs, X, y, classes=None):
+    def _partial_fit(self, n_epochs, X, y, classes=None, check_convergence=False):
         was_fit = getattr(self, "_is_fit", False)
         if not was_fit:
             X, y = self._init_from_json(X=X, y=y, classes=classes)
@@ -419,7 +432,7 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
             if isinstance(X, sparse.BCOO) or isinstance(X, jnp.ndarray):
                 y = jnp.rint(y).astype(jnp.int32)
             else:
-                # Fallback purely for standard non-JAX scikit-learn pipelines
+                # Fallback
                 y = self._label_encoder.transform(y)
                 y = jnp.array(y)
                 X = jnp.array(X)
@@ -442,7 +455,6 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
 
         for _ in range(n_epochs):
             prev_params = self.params_
-            value = new_value
 
             if self.solver not in ["lbfgs"]:
                 if self.batch_size is not None:
@@ -496,23 +508,26 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
                 )
                 new_params = optax.apply_updates(self.params_, updates)
 
-            self.n_iter_ += 1
-            if self.n_iter_ > 1 and (
-                all(
-                    [
-                        jnp.allclose(new_p, p, atol=self.atol, rtol=self.rtol)
-                        for new_p, p in zip(new_params, prev_params)
-                    ]
-                )
-                or (
-                    self.solver in ["lbfgs"]
-                    and jnp.allclose(value, new_value, atol=self.atol, rtol=self.rtol)
-                )
-            ):
-                self.converged_ = True
-                break
-
             self.params_ = new_params
+            self.n_iter_ += 1
+            if check_convergence:
+                if self.n_iter_ > 1 and (
+                    jnp.all(
+                        jnp.array([
+                            jnp.allclose(new_p, p, atol=self.atol, rtol=self.rtol)
+                            for new_p, p in zip(new_params, prev_params)
+                        ])
+                    )
+                    or (
+                        self.solver in ["lbfgs"]
+                        and jnp.allclose(self.loss_history_[-2],
+                                         self.loss_history_[-1],
+                                         atol=self.atol,
+                                         rtol=self.rtol)
+                    )
+                ):
+                    self.converged_ = True
+                    break
 
         self._opt_state = opt_state
         self._is_fit = True
