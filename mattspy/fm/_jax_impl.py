@@ -314,7 +314,7 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
         self._is_fit = False
         return self._partial_fit(self.max_iter, X, y)
 
-    def partial_fit(self, X, y, classes=None, convergence_check=False):
+    def partial_fit(self, X, y, classes=None, check_convergence=False):
         """Fit the FM to data `X` and `y` for a single epoch.
 
         Parameters
@@ -327,7 +327,7 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
             If given, an optional array of unique class labels
             that is used instead of extracting them from the input
             `y`.
-        convergence_check : bool, optional
+        check_convergence : bool, optional
             If True, checks for convergence after this partial fit. Default is False.
             Note that it can incur additional computational and memorycost as it
             requires checking the convergence criteria after this partial fit,
@@ -341,7 +341,7 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
         """
         return self._partial_fit(1, X, y,
                                  classes=classes,
-                                 convergence_check=convergence_check)
+                                 check_convergence=check_convergence)
 
     def _init_numpy(self, X, y, classes=None):
         X, y = validate_data(self, X=X, y=y, reset=True)
