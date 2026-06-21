@@ -15,20 +15,23 @@ from sklearn.preprocessing import LabelEncoder
 from mattspy.json import EstimatorToFromJSONMixin
 
 from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
+from jax.experimental import sparse
 
-
+@jax.checkpoint
+@sparse.sparsify
 def _lowrank_twoway_term(x, vmat):
-    fterm = jnp.einsum("np,pk...->nk...", x, vmat)
-    sterm = jnp.einsum("np,pk...->nk...", x**2, vmat**2)
+    fterm = jnp.einsum("np,pkc->nkc", x, vmat)
+    sterm = jnp.einsum("np,pkc->nkc", x**2, vmat**2)
     return 0.5 * jnp.sum(fterm**2 - sterm, axis=1)
 
-
-_checkpoint_twoway = jax.checkpoint(_lowrank_twoway_term)
-
+@sparse.sparsify
+def _linear_term(x, w):
+    return jnp.einsum("np,p...->n...", x, w)
 
 @jax.jit
+#@sparse.sparsify
 def _fm_eval(x, w0, w, vmat):
-    return w0 + jnp.einsum("np,p...->n...", x, w) + _checkpoint_twoway(x, vmat)
+    return w0 + _linear_term(x, w) + _lowrank_twoway_term(x, vmat)
 
 
 @partial(jax.jit, static_argnames=("n_features", "rank", "n_classes"))
@@ -47,62 +50,6 @@ def _extract_fm_params(params, n_features, rank, n_classes):
         )
 
     return w0, w, vmat
-
-
-@jax.jit
-def _combine_fm_params(w0, w, vmat):
-    return jnp.concatenate([jnp.atleast_1d(w0).flatten(), w.flatten(), vmat.flatten()])
-
-
-@jax.jit
-def _jax_logits(params, X):
-    w0, w, vmat = params
-    logits = _fm_eval(X, w0, w, vmat)
-    return logits
-
-
-@jax.jit
-def _jax_log_proba(params, X):
-    return jax.nn.log_softmax(
-        _jax_logits(params, X),
-        axis=-1,
-    )
-
-
-@jax.jit
-def _jax_proba(params, X):
-    return jax.nn.softmax(
-        _jax_logits(params, X),
-        axis=-1,
-    )
-
-
-@jax.jit
-def _jax_predict(params, X):
-    return jnp.argmax(
-        _jax_logits(params, X),
-        axis=-1,
-    )
-
-
-@jax.jit
-def _jax_loss_func(params, X, y, lambda_v, lambda_w):
-    w0, w, vmat = params
-    logits = _fm_eval(X, w0, w, vmat)
-    loss = jnp.mean(softmax_cross_entropy_with_integer_labels(logits, y, axis=-1))
-    loss = jax.lax.cond(
-        lambda_v > 0,
-        lambda loss: loss + lambda_v * jnp.sum(vmat**2),
-        lambda loss: loss,
-        loss,
-    )
-    loss = jax.lax.cond(
-        lambda_w > 0,
-        lambda loss: loss + lambda_w * jnp.sum(w**2),
-        lambda loss: loss,
-        loss,
-    )
-    return loss
 
 
 devices = jax.devices()
@@ -125,7 +72,7 @@ params_sharding = (
     NamedSharding(mesh, P(None, None, "class_grid")),
 )
 
-X_sharding = NamedSharding(mesh, P(None, None))
+X_sharding = NamedSharding(mesh, P())
 y_sharding = NamedSharding(mesh, P(None))
 
 lambda_v_sharding = NamedSharding(mesh, P())
@@ -138,6 +85,59 @@ sharding_tuple = (
     lambda_v_sharding,
     lambda_w_sharding,
 )
+
+proba_out_sharding = NamedSharding(mesh, P(None, "class_grid"))
+
+
+@jax.jit
+def _combine_fm_params(w0, w, vmat):
+    return jnp.concatenate([jnp.atleast_1d(w0).flatten(), w.flatten(), vmat.flatten()])
+
+
+@jax.jit
+def _jax_logits(params, X):
+    w0, w, vmat = params
+    logits = _fm_eval(X, w0, w, vmat)
+    return logits
+
+_jax_proba = jax.jit(
+    lambda params, X: jax.nn.softmax(_jax_logits(params, X), axis=-1),
+    in_shardings=(params_sharding, X_sharding),
+    out_shardings=proba_out_sharding,
+)
+
+_jax_log_proba = jax.jit(
+    lambda params, X: jax.nn.log_softmax(_jax_logits(params, X), axis=-1),
+    in_shardings=(params_sharding, X_sharding),
+    out_shardings=proba_out_sharding,
+)
+
+_jax_predict = jax.jit(
+    lambda params, X: jnp.argmax(_jax_logits(params, X), axis=-1),
+    in_shardings=(params_sharding, X_sharding),
+    out_shardings=NamedSharding(mesh, P(None)),  # argmax reduces classes → (n_samples,)
+)
+
+
+@jax.jit
+def _jax_loss_func(params, X, y, lambda_v, lambda_w):
+    w0, w, vmat = params
+    logits = _fm_eval(X, w0, w, vmat)
+    loss = jnp.mean(softmax_cross_entropy_with_integer_labels(logits, y, axis=-1))
+    loss = jax.lax.cond(
+        lambda_v > 0,
+        lambda loss: loss + lambda_v * jnp.sum(vmat**2),
+        lambda loss: loss,
+        loss,
+    )
+    loss = jax.lax.cond(
+        lambda_w > 0,
+        lambda loss: loss + lambda_w * jnp.sum(w**2),
+        lambda loss: loss,
+        loss,
+    )
+    return loss
+
 
 _value_and_grad_from_state_jax_loss_func = jax.jit(
     optax.value_and_grad_from_state(_jax_loss_func),
@@ -393,10 +393,10 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
             if "_label_encoder" in kwargs:
                 self._label_encoder = kwargs["_label_encoder"]
         else:
-            if not (isinstance(X, jnp.ndarray) and isinstance(y, jnp.ndarray)):
-                X, y = self._init_numpy(X, y, classes=classes)
-            else:
+            if isinstance(X, sparse.BCOO) or (isinstance(X, jnp.ndarray) and isinstance(y, jnp.ndarray)):
                 X, y = self._init_jax(X, y, classes=classes)
+            else:
+                X, y = self._init_numpy(X, y, classes=classes)
 
         if "params_" not in kwargs:
             self.params_ = _init_params_sharded(
@@ -413,15 +413,13 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
             X, y = self._init_from_json(X=X, y=y, classes=classes)
             self.loss_history_ = []
         else:
-            if not (isinstance(X, jnp.ndarray) and isinstance(y, jnp.ndarray)):
-                X, y = validate_data(self, X=X, y=y, reset=False)
-            else:
+            if isinstance(X, sparse.BCOO) or isinstance(X, jnp.ndarray):
                 y = jnp.rint(y).astype(jnp.int32)
-
-        if not (isinstance(X, jnp.ndarray) and isinstance(y, jnp.ndarray)):
-            y = self._label_encoder.transform(y)
-            X = jnp.array(X)
-            y = jnp.array(y)
+            else:
+                # Fallback purely for standard non-JAX scikit-learn pipelines
+                y = self._label_encoder.transform(y)
+                y = jnp.array(y)
+                X = jnp.array(X)
 
         kwargs = {k: v for k, v in (self.solver_kwargs or tuple())}
         if not was_fit:
@@ -532,8 +530,9 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
             else `(n_samples)`.
         """
 
-        if not isinstance(X, jnp.ndarray):
+        if not isinstance(X, (jnp.ndarray, sparse.BCOO)):
             X = validate_data(self, X=X, reset=False)
+            X = jnp.array(X)
         if not getattr(self, "_is_fit", False):
             raise NotFittedError(
                 "FMClassifier must be fit before calling `predict_log_proba`!"
@@ -555,8 +554,9 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
             else `(n_samples)`.
         """
 
-        if not isinstance(X, jnp.ndarray):
+        if not isinstance(X, (jnp.ndarray, sparse.BCOO)):
             X = validate_data(self, X=X, reset=False)
+            X = jnp.array(X)
         if not getattr(self, "_is_fit", False):
             raise NotFittedError(
                 "FMClassifier must be fit before calling `predict_proba`!"
@@ -577,8 +577,9 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
             An array of labels of shape `(n_samples)`.
         """
 
-        if not isinstance(X, jnp.ndarray):
+        if not isinstance(X, (jnp.ndarray, sparse.BCOO)):
             X = validate_data(self, X=X, reset=False)
+            X = jnp.array(X)
         if not getattr(self, "_is_fit", False):
             raise NotFittedError("FMClassifier must be fit before calling `predict`!")
 
