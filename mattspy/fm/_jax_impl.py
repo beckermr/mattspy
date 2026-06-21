@@ -20,9 +20,12 @@ from jax.experimental import sparse
 @jax.checkpoint
 @sparse.sparsify
 def _lowrank_twoway_term(x, vmat):
-    fterm = jnp.einsum("np,pkc->nkc", x, vmat)
-    sterm = jnp.einsum("np,pkc->nkc", x**2, vmat**2)
-    return 0.5 * jnp.sum(fterm**2 - sterm, axis=1)
+    x_bf = x.astype(jnp.bfloat16)
+    vmat_bf = vmat.astype(jnp.bfloat16)
+
+    fterm = jnp.einsum("np,pkc->nkc", x_bf, vmat_bf)
+    sterm = jnp.einsum("np,pkc->nkc", x_bf**2, vmat_bf**2)
+    return 0.5 * jnp.sum(fterm.astype(jnp.float32)**2 - sterm.astype(jnp.float32), axis=1)
 
 @sparse.sparsify
 def _linear_term(x, w):
