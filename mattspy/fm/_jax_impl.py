@@ -14,17 +14,31 @@ from sklearn.preprocessing import LabelEncoder
 
 from mattspy.json import EstimatorToFromJSONMixin
 
+from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
+from jax.experimental import sparse
 
-@jax.jit
+
+@jax.checkpoint
+@sparse.sparsify
 def _lowrank_twoway_term(x, vmat):
-    fterm = jnp.einsum("np,pk...->nk...", x, vmat)
-    sterm = jnp.einsum("np,pk...->nk...", x**2, vmat**2)
-    return 0.5 * jnp.sum(fterm**2 - sterm, axis=1)
+    x_bf = x.astype(jnp.bfloat16)
+    vmat_bf = vmat.astype(jnp.bfloat16)
+
+    fterm = jnp.einsum("np,pkc->nkc", x_bf, vmat_bf)
+    sterm = jnp.einsum("np,pkc->nkc", x_bf**2, vmat_bf**2)
+    return 0.5 * jnp.sum(
+        fterm.astype(jnp.float32) ** 2 - sterm.astype(jnp.float32), axis=1
+    )
+
+
+@sparse.sparsify
+def _linear_term(x, w):
+    return jnp.einsum("np,p...->n...", x, w)
 
 
 @jax.jit
 def _fm_eval(x, w0, w, vmat):
-    return w0 + jnp.einsum("np,p...->n...", x, w) + _lowrank_twoway_term(x, vmat)
+    return w0 + _linear_term(x, w) + _lowrank_twoway_term(x, vmat)
 
 
 @partial(jax.jit, static_argnames=("n_features", "rank", "n_classes"))
@@ -45,6 +59,43 @@ def _extract_fm_params(params, n_features, rank, n_classes):
     return w0, w, vmat
 
 
+devices = jax.devices()
+mesh = Mesh(devices, axis_names=("class_grid",))
+
+params_sharding = (
+    NamedSharding(
+        mesh,
+        P(
+            "class_grid",
+        ),
+    ),
+    NamedSharding(
+        mesh,
+        P(
+            None,
+            "class_grid",
+        ),
+    ),
+    NamedSharding(mesh, P(None, None, "class_grid")),
+)
+
+X_sharding = NamedSharding(mesh, P())
+y_sharding = NamedSharding(mesh, P(None))
+
+lambda_v_sharding = NamedSharding(mesh, P())
+lambda_w_sharding = NamedSharding(mesh, P())
+
+sharding_tuple = (
+    params_sharding,
+    X_sharding,
+    y_sharding,
+    lambda_v_sharding,
+    lambda_w_sharding,
+)
+
+proba_out_sharding = NamedSharding(mesh, P(None, "class_grid"))
+
+
 @jax.jit
 def _combine_fm_params(w0, w, vmat):
     return jnp.concatenate([jnp.atleast_1d(w0).flatten(), w.flatten(), vmat.flatten()])
@@ -57,28 +108,23 @@ def _jax_logits(params, X):
     return logits
 
 
-@jax.jit
-def _jax_log_proba(params, X):
-    return jax.nn.log_softmax(
-        _jax_logits(params, X),
-        axis=-1,
-    )
+_jax_proba = jax.jit(
+    lambda params, X: jax.nn.softmax(_jax_logits(params, X), axis=-1),
+    in_shardings=(params_sharding, X_sharding),
+    out_shardings=proba_out_sharding,
+)
 
+_jax_log_proba = jax.jit(
+    lambda params, X: jax.nn.log_softmax(_jax_logits(params, X), axis=-1),
+    in_shardings=(params_sharding, X_sharding),
+    out_shardings=proba_out_sharding,
+)
 
-@jax.jit
-def _jax_proba(params, X):
-    return jax.nn.softmax(
-        _jax_logits(params, X),
-        axis=-1,
-    )
-
-
-@jax.jit
-def _jax_predict(params, X):
-    return jnp.argmax(
-        _jax_logits(params, X),
-        axis=-1,
-    )
+_jax_predict = jax.jit(
+    lambda params, X: jnp.argmax(_jax_logits(params, X), axis=-1),
+    in_shardings=(params_sharding, X_sharding),
+    out_shardings=NamedSharding(mesh, P(None)),  # argmax reduces classes → (n_samples,)
+)
 
 
 @jax.jit
@@ -103,13 +149,44 @@ def _jax_loss_func(params, X, y, lambda_v, lambda_w):
 
 _value_and_grad_from_state_jax_loss_func = jax.jit(
     optax.value_and_grad_from_state(_jax_loss_func),
+    in_shardings=sharding_tuple,
 )
 _grad_jax_loss_func = jax.jit(
     jax.grad(_jax_loss_func),
+    in_shardings=sharding_tuple,
 )
 _value_and_grad_jax_loss_func = jax.jit(
     jax.value_and_grad(_jax_loss_func),
+    in_shardings=sharding_tuple,
 )
+
+
+@partial(
+    jax.jit,
+    static_argnames=("n_feat", "rank", "n_classes"),
+    out_shardings=params_sharding,
+)
+def _init_params_sharded(key, n_feat, rank, n_classes):
+    k1, k2, k3 = jax.random.split(key, 3)
+
+    w0 = jax.random.normal(k1, shape=(n_classes,))
+    w = jax.random.normal(
+        k2,
+        shape=(
+            n_feat,
+            n_classes,
+        ),
+    )
+    vmat = jax.random.normal(
+        k3,
+        shape=(
+            n_feat,
+            rank,
+            n_classes,
+        ),
+    )
+
+    return (w0, w, vmat)
 
 
 def _call_in_batches_maybe(self, func, X):
@@ -238,7 +315,7 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
         self._is_fit = False
         return self._partial_fit(self.max_iter, X, y)
 
-    def partial_fit(self, X, y, classes=None):
+    def partial_fit(self, X, y, classes=None, check_convergence=False):
         """Fit the FM to data `X` and `y` for a single epoch.
 
         Parameters
@@ -251,13 +328,21 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
             If given, an optional array of unique class labels
             that is used instead of extracting them from the input
             `y`.
+        check_convergence : bool, optional
+            If True, checks for convergence after this partial fit. Default is False.
+            Note that it can incur additional computational and memorycost as it
+            requires checking the convergence criteria after this partial fit,
+            so not ideal for external mini-batch updates.
+
 
         Returns
         -------
         self : object
             The fit estimator.
         """
-        return self._partial_fit(1, X, y, classes=classes)
+        return self._partial_fit(
+            1, X, y, classes=classes, check_convergence=check_convergence
+        )
 
     def _init_numpy(self, X, y, classes=None):
         X, y = validate_data(self, X=X, y=y, reset=True)
@@ -324,47 +409,54 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
             if "_label_encoder" in kwargs:
                 self._label_encoder = kwargs["_label_encoder"]
         else:
-            if not (isinstance(X, jnp.ndarray) and isinstance(y, jnp.ndarray)):
-                X, y = self._init_numpy(X, y, classes=classes)
-            else:
+            if isinstance(X, sparse.BCOO) or (
+                isinstance(X, jnp.ndarray) and isinstance(y, jnp.ndarray)
+            ):
                 X, y = self._init_jax(X, y, classes=classes)
+            else:
+                X, y = self._init_numpy(X, y, classes=classes)
 
         if "params_" not in kwargs:
-            self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
-            w0 = jax.random.normal(subkey, shape=(self.n_classes_))
-            self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
-            w = jax.random.normal(subkey, shape=(self.n_features_in_, self.n_classes_))
-            self._jax_rng_key, subkey = jax.random.split(self._jax_rng_key)
-            vmat = jax.random.normal(
-                subkey, shape=(self.n_features_in_, self.rank, self.n_classes_)
+            self.params_ = _init_params_sharded(
+                self._jax_rng_key, self.n_features_in_, self.rank, self.n_classes_
             )
-            self.params_ = (w0, w, vmat)
         else:
             self.params_ = kwargs["params_"]
 
         return X, y
 
-    def _partial_fit(self, n_epochs, X, y, classes=None):
-        if not getattr(self, "_is_fit", False):
+    def _partial_fit(self, n_epochs, X, y, classes=None, check_convergence=False):
+        was_fit = getattr(self, "_is_fit", False)
+        if not was_fit:
             X, y = self._init_from_json(X=X, y=y, classes=classes)
+            self.loss_history_ = []
         else:
-            if not (isinstance(X, jnp.ndarray) and isinstance(y, jnp.ndarray)):
-                X, y = validate_data(self, X=X, y=y, reset=False)
-            else:
+            if isinstance(X, sparse.BCOO) or isinstance(X, jnp.ndarray):
                 y = jnp.rint(y).astype(jnp.int32)
-
-        if not (isinstance(X, jnp.ndarray) and isinstance(y, jnp.ndarray)):
-            y = self._label_encoder.transform(y)
-            X = jnp.array(X)
-            y = jnp.array(y)
+            else:
+                # Fallback
+                y = self._label_encoder.transform(y)
+                y = jnp.array(y)
+                X = jnp.array(X)
 
         kwargs = {k: v for k, v in (self.solver_kwargs or tuple())}
-        optimizer = getattr(optax, self.solver)(**kwargs)
-        opt_state = optimizer.init(self.params_)
+        if not was_fit:
+            # initialize optimizer only if first call to partial fit
+            optimizer = getattr(optax, self.solver)(**kwargs)
+            self._optimizer = optimizer
+        else:
+            optimizer = self._optimizer
+        if not was_fit:
+            # initialize opt_state only if first call to partial fit
+            self._opt_state = self._optimizer.init(self.params_)
+            opt_state = self._opt_state
+        else:
+            opt_state = self._opt_state
+
         new_value = None
 
         for _ in range(n_epochs):
-            value = new_value
+            prev_params = self.params_
 
             if self.solver not in ["lbfgs"]:
                 if self.batch_size is not None:
@@ -374,17 +466,20 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
                         end = min(start + self.batch_size, X.shape[0])
                         Xb = X[inds[start:end], :]
                         yb = y[inds[start:end]]
-                        grads = _grad_jax_loss_func(
+                        new_value, grads = _value_and_grad_jax_loss_func(
                             self.params_, Xb, yb, self.lambda_v, self.lambda_w
                         )
+                        self.loss_history_.append(new_value)
                         updates, opt_state = optimizer.update(
                             grads, opt_state, self.params_
                         )
                         new_params = optax.apply_updates(self.params_, updates)
+                        self.params_ = new_params
                 else:
-                    grads = _grad_jax_loss_func(
+                    new_value, grads = _value_and_grad_jax_loss_func(
                         self.params_, X, y, self.lambda_v, self.lambda_w
                     )
+                    self.loss_history_.append(new_value)
                     updates, opt_state = optimizer.update(
                         grads, opt_state, self.params_
                     )
@@ -398,6 +493,7 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
                     self.lambda_w,
                     state=opt_state,
                 )
+                self.loss_history_.append(new_value)
                 updates, opt_state = optimizer.update(
                     grads,
                     opt_state,
@@ -414,24 +510,33 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
                 )
                 new_params = optax.apply_updates(self.params_, updates)
 
-            self.n_iter_ += 1
-            if self.n_iter_ > 1 and (
-                all(
-                    [
-                        jnp.allclose(new_p, p, atol=self.atol, rtol=self.rtol)
-                        for new_p, p in zip(new_params, self.params_)
-                    ]
-                )
-                or (
-                    self.solver in ["lbfgs"]
-                    and jnp.allclose(value, new_value, atol=self.atol, rtol=self.rtol)
-                )
-            ):
-                self.converged_ = True
-                break
-
             self.params_ = new_params
+            self.n_iter_ += 1
+            if check_convergence:
+                if self.n_iter_ > 1 and (
+                    jnp.all(
+                        jnp.array(
+                            [
+                                jnp.allclose(new_p, p, atol=self.atol, rtol=self.rtol)
+                                for new_p, p in zip(new_params, prev_params)
+                            ]
+                        )
+                    )
+                    or (
+                        self.solver in ["lbfgs"]
+                        and jnp.allclose(
+                            self.loss_history_[-2],
+                            self.loss_history_[-1],
+                            atol=self.atol,
+                            rtol=self.rtol,
+                        )
+                    )
+                ):
+                    self.converged_ = True
+                    break
 
+        self._opt_state = opt_state
+        self._is_fit = True
         return self
 
     def predict_log_proba(self, X):
@@ -449,8 +554,9 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
             else `(n_samples)`.
         """
 
-        if not isinstance(X, jnp.ndarray):
+        if not isinstance(X, (jnp.ndarray, sparse.BCOO)):
             X = validate_data(self, X=X, reset=False)
+            X = jnp.array(X)
         if not getattr(self, "_is_fit", False):
             raise NotFittedError(
                 "FMClassifier must be fit before calling `predict_log_proba`!"
@@ -472,8 +578,9 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
             else `(n_samples)`.
         """
 
-        if not isinstance(X, jnp.ndarray):
+        if not isinstance(X, (jnp.ndarray, sparse.BCOO)):
             X = validate_data(self, X=X, reset=False)
+            X = jnp.array(X)
         if not getattr(self, "_is_fit", False):
             raise NotFittedError(
                 "FMClassifier must be fit before calling `predict_proba`!"
@@ -494,8 +601,9 @@ class FMClassifier(EstimatorToFromJSONMixin, ClassifierMixin, BaseEstimator):
             An array of labels of shape `(n_samples)`.
         """
 
-        if not isinstance(X, jnp.ndarray):
+        if not isinstance(X, (jnp.ndarray, sparse.BCOO)):
             X = validate_data(self, X=X, reset=False)
+            X = jnp.array(X)
         if not getattr(self, "_is_fit", False):
             raise NotFittedError("FMClassifier must be fit before calling `predict`!")
 
